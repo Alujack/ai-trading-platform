@@ -31,11 +31,20 @@ SYMBOL_MAP: dict[str, str] = dict(PROVIDER_BY_SYMBOL)
 
 
 async def fetch_candles(
-    client: httpx.AsyncClient, symbol: str, timeframe: str
+    client: httpx.AsyncClient,
+    symbol: str,
+    timeframe: str,
+    *,
+    end_date: datetime | None = None,
 ) -> list[CandleRow]:
+    """Fetch a batch of OHLCV candles for symbol/timeframe.
+
+    end_date (Twelve Data only) lets callers page backward through history —
+    bars returned will have timestamps ≤ end_date. Used by backfill scripts.
+    """
     provider = PROVIDER_BY_SYMBOL.get(symbol)
     if provider == "twelvedata":
-        return await _fetch_twelvedata(client, symbol, timeframe)
+        return await _fetch_twelvedata(client, symbol, timeframe, end_date=end_date)
     if provider == "alpha_vantage":
         return await _fetch_alpha_vantage(client, symbol, timeframe)
     raise ValueError(f"No provider configured for symbol {symbol}")
@@ -74,15 +83,21 @@ def _parse_twelvedata_timestamp(raw: str) -> datetime:
 
 
 async def _fetch_twelvedata(
-    client: httpx.AsyncClient, symbol: str, timeframe: str
+    client: httpx.AsyncClient,
+    symbol: str,
+    timeframe: str,
+    *,
+    end_date: datetime | None = None,
 ) -> list[CandleRow]:
-    params = {
+    params: dict[str, str] = {
         "symbol": _TWELVEDATA_SYMBOL[symbol],
         "interval": _TWELVEDATA_INTERVAL[timeframe],
         "outputsize": "100",
         "format": "JSON",
         "apikey": _twelvedata_key(),
     }
+    if end_date is not None:
+        params["end_date"] = end_date.strftime("%Y-%m-%d %H:%M:%S")
     resp = await client.get(TWELVEDATA_URL, params=params, timeout=30.0)
     resp.raise_for_status()
     payload: dict[str, Any] = resp.json()

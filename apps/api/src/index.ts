@@ -1,22 +1,36 @@
 import "dotenv/config";
-import cors from "cors";
-import express, { type Request, type Response } from "express";
-import helmet from "helmet";
-import morgan from "morgan";
+import { buildApp } from "./app";
+import { prisma } from "./lib/prisma";
+import { redis, connectRedis } from "./lib/redis";
 
-const app = express();
 const port = Number(process.env.API_PORT ?? 4000);
 const host = process.env.API_HOST ?? "0.0.0.0";
 
-app.use(helmet());
-app.use(cors());
-app.use(morgan("dev"));
-app.use(express.json());
+const app = buildApp();
 
-app.get("/health", (_req: Request, res: Response) => {
-  res.json({ status: "ok" });
+connectRedis().catch((err) => {
+  console.error("[redis] initial connect failed:", err.message);
 });
 
-app.listen(port, host, () => {
+const server = app.listen(port, host, () => {
   console.log(`API listening on http://${host}:${port}`);
 });
+
+async function shutdown(signal: string): Promise<void> {
+  console.log(`[shutdown] received ${signal}, closing gracefully`);
+  server.close(() => console.log("[shutdown] http server closed"));
+  try {
+    await prisma.$disconnect();
+  } catch (err) {
+    console.error("[shutdown] prisma disconnect failed:", err);
+  }
+  try {
+    await redis.quit();
+  } catch (err) {
+    console.error("[shutdown] redis quit failed:", err);
+  }
+  process.exit(0);
+}
+
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+process.on("SIGINT", () => void shutdown("SIGINT"));
