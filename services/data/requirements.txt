@@ -1,0 +1,7 @@
+asyncpg>=0.29.0
+httpx>=0.27.0
+python-dotenv>=1.0.1
+pandas>=2.0.0
+# pandas-ta indicators — using the maintained fork (drop-in replacement for the
+# abandoned `pandas-ta` PyPI package; import as `pandas_ta_classic`).
+pandas-ta-classic>=0.4

@@ -1,0 +1,140 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Impact {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum Direction {
+  LONG
+  SHORT
+}
+
+enum SignalStatus {
+  PENDING
+  ACTIVE
+  CLOSED
+  CANCELLED
+}
+
+enum TradeStatus {
+  OPEN
+  CLOSED
+}
+
+model Candle {
+  id        String   @id @default(cuid())
+  symbol    String
+  timeframe String
+  open      Decimal  @db.Decimal(18, 8)
+  high      Decimal  @db.Decimal(18, 8)
+  low       Decimal  @db.Decimal(18, 8)
+  close     Decimal  @db.Decimal(18, 8)
+  volume    Decimal  @db.Decimal(24, 8)
+  timestamp DateTime
+  createdAt DateTime @default(now())
+
+  @@unique([symbol, timeframe, timestamp])
+  @@index([symbol, timeframe, timestamp])
+}
+
+model Indicator {
+  id        String   @id @default(cuid())
+  symbol    String
+  timeframe String
+  timestamp DateTime
+  rsi       Decimal? @db.Decimal(10, 4)
+  ema20     Decimal? @db.Decimal(18, 8)
+  ema50     Decimal? @db.Decimal(18, 8)
+  ema200    Decimal? @db.Decimal(18, 8)
+  atr       Decimal? @db.Decimal(18, 8)
+  createdAt DateTime @default(now())
+
+  @@unique([symbol, timeframe, timestamp])
+  @@index([symbol, timeframe, timestamp])
+}
+
+model NewsEvent {
+  id          String   @id @default(cuid())
+  title       String
+  impact      Impact
+  currency    String
+  scheduledAt DateTime
+  actual      String?
+  forecast    String?
+  previous    String?
+  aiSummary   String?
+  createdAt   DateTime @default(now())
+
+  @@index([scheduledAt])
+  @@index([currency])
+}
+
+model Signal {
+  id              String       @id @default(cuid())
+  symbol          String
+  timeframe       String
+  direction       Direction
+  entryPrice      Decimal      @db.Decimal(18, 8)
+  stopLoss        Decimal      @db.Decimal(18, 8)
+  takeProfit      Decimal      @db.Decimal(18, 8)
+  confidenceScore Int
+  aiReasoning     String
+  status          SignalStatus @default(PENDING)
+  createdAt       DateTime     @default(now())
+  trades          Trade[]
+
+  @@index([symbol, status])
+  @@index([createdAt])
+}
+
+model Trade {
+  id           String      @id @default(cuid())
+  signalId     String
+  signal       Signal      @relation(fields: [signalId], references: [id])
+  entryPrice   Decimal     @db.Decimal(18, 8)
+  exitPrice    Decimal?    @db.Decimal(18, 8)
+  positionSize Decimal     @db.Decimal(24, 8)
+  riskAmount   Decimal     @db.Decimal(18, 2)
+  profitLoss   Decimal?    @db.Decimal(18, 2)
+  status       TradeStatus @default(OPEN)
+  openedAt     DateTime    @default(now())
+  closedAt     DateTime?
+  journals     Journal[]
+
+  @@index([signalId])
+  @@index([status])
+}
+
+model Journal {
+  id        String   @id @default(cuid())
+  tradeId   String
+  trade     Trade    @relation(fields: [tradeId], references: [id])
+  notes     String
+  aiReview  String
+  emotions  String?
+  createdAt DateTime @default(now())
+
+  @@index([tradeId])
+}
+
+model RiskLog {
+  id                    String   @id @default(cuid())
+  accountBalance        Decimal  @db.Decimal(18, 2)
+  riskPercent           Decimal  @db.Decimal(6, 4)
+  positionSize          Decimal  @db.Decimal(24, 8)
+  dailyLoss             Decimal  @db.Decimal(18, 2)
+  dailyLossLimit        Decimal  @db.Decimal(18, 2)
+  circuitBreakerTripped Boolean  @default(false)
+  createdAt             DateTime @default(now())
+
+  @@index([createdAt])
+}
