@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
     anthropic_api_key: str = Field(..., description="Anthropic API key.")
     anthropic_model: str = Field(
-        default="claude-sonnet-4-6",
+        default="claude-sonnet-4-20250514",
         description="Model ID used for analysis calls.",
     )
     anthropic_max_tokens: int = Field(default=4096, ge=512, le=16000)

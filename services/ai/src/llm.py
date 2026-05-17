@@ -7,6 +7,7 @@ from functools import lru_cache
 from typing import Any, TypeVar
 
 import anthropic
+from anthropic.types import Message, TextBlock
 from fastapi import HTTPException, status
 from pydantic import BaseModel, ValidationError
 
@@ -27,12 +28,8 @@ def get_client() -> anthropic.Anthropic:
     )
 
 
-def _extract_text(message: anthropic.types.Message) -> str:
-    parts: list[str] = []
-    for block in message.content:
-        if getattr(block, "type", None) == "text":
-            parts.append(block.text)  # type: ignore[attr-defined]
-    return "".join(parts)
+def _extract_text(message: Message) -> str:
+    return "".join(block.text for block in message.content if isinstance(block, TextBlock))
 
 
 def analyze(
