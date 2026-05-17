@@ -74,7 +74,7 @@ export function checkDailyLoss(
   limitPercent: number = DAILY_LOSS_LIMIT_PCT,
 ): Allowed {
   const limit = accountBalance * (limitPercent / 100);
-  const tripped = todayLoss >= limit;
+  const tripped = todayLoss > limit;
   const result: Allowed = tripped
     ? { allowed: false, reason: "Daily loss limit reached" }
     : { allowed: true };
@@ -91,7 +91,7 @@ export function checkMaxDrawdown(
     return { allowed: false, reason: "Invalid peak balance" };
   }
   const drawdownPct = ((peakBalance - currentBalance) / peakBalance) * 100;
-  const tripped = drawdownPct >= limitPercent;
+  const tripped = drawdownPct > limitPercent;
   const result: Allowed = tripped
     ? { allowed: false, reason: "Max drawdown exceeded" }
     : { allowed: true };

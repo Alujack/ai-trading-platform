@@ -130,12 +130,12 @@ export interface MonitorSummary {
   noPrice: number;
 }
 
-interface CloseDecision {
+export interface CloseDecision {
   exitPrice: number;
   outcome: "win" | "loss";
 }
 
-function evaluateExit(
+export function evaluateExit(
   direction: "LONG" | "SHORT",
   price: number,
   takeProfit: number,
