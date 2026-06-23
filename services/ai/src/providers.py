@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
 from fastapi import HTTPException, status
@@ -220,17 +221,81 @@ _BUILDERS = {
     "gemini": GeminiProvider,
 }
 
+# Display labels + which env field / model field each provider maps to. Adding a
+# new key-based provider is just another entry here plus a builder above.
+PROVIDER_META: dict[str, dict[str, str]] = {
+    "mock": {"label": "Mock", "key_field": "", "model_field": ""},
+    "anthropic": {
+        "label": "Claude",
+        "key_field": "anthropic_api_key",
+        "model_field": "anthropic_model",
+    },
+    "gemini": {
+        "label": "Gemini",
+        "key_field": "gemini_api_key",
+        "model_field": "gemini_model",
+    },
+}
+
 _active: str | None = None
 _cache: dict[str, Provider] = {}
+
+# Runtime key/model overrides set from the UI. Persisted to a gitignored file so
+# pasted keys survive a restart (same trust level as .env — never committed).
+_OVERRIDES_PATH = Path(__file__).resolve().parent.parent / ".provider_overrides.json"
+_overrides: dict[str, dict[str, str]] = {}
+
+
+def _load_overrides() -> None:
+    global _overrides
+    try:
+        if _OVERRIDES_PATH.exists():
+            _overrides = json.loads(_OVERRIDES_PATH.read_text("utf-8")) or {}
+    except Exception as exc:  # noqa: BLE001 — bad file shouldn't block startup
+        logger.warning("could not read provider overrides: %s", exc)
+        _overrides = {}
+
+
+def _save_overrides() -> None:
+    try:
+        _OVERRIDES_PATH.write_text(json.dumps(_overrides, indent=2), "utf-8")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("could not persist provider overrides: %s", exc)
+
+
+_load_overrides()
+
+
+def _effective_settings(name: str, cfg: Settings) -> Settings:
+    """Settings with any UI-pasted key/model for `name` layered on top of env."""
+    ov = _overrides.get(name)
+    meta = PROVIDER_META.get(name, {})
+    if not ov or not meta:
+        return cfg
+    update: dict[str, Any] = {}
+    if ov.get("api_key") and meta.get("key_field"):
+        update[meta["key_field"]] = ov["api_key"]
+    if ov.get("model") and meta.get("model_field"):
+        update[meta["model_field"]] = ov["model"]
+    return cfg.model_copy(update=update) if update else cfg
+
+
+def _key_for(name: str, cfg: Settings) -> str | None:
+    """Effective API key for a provider: UI override wins, else env."""
+    ov = _overrides.get(name, {})
+    if ov.get("api_key"):
+        return ov["api_key"]
+    meta = PROVIDER_META.get(name, {})
+    field = meta.get("key_field")
+    return getattr(cfg, field, None) if field else None
 
 
 def available(settings: Settings | None = None) -> list[str]:
     cfg = settings or get_settings()
     out = ["mock"]
-    if cfg.anthropic_api_key:
-        out.append("anthropic")
-    if cfg.gemini_api_key:
-        out.append("gemini")
+    for name in ("anthropic", "gemini"):
+        if _key_for(name, cfg):
+            out.append(name)
     return out
 
 
@@ -263,9 +328,92 @@ def set_active(name: str, settings: Settings | None = None) -> str:
     return _active
 
 
+def _effective_model(name: str, cfg: Settings) -> str | None:
+    meta = PROVIDER_META.get(name, {})
+    field = meta.get("model_field")
+    if not field:
+        return None
+    return getattr(_effective_settings(name, cfg), field, None)
+
+
+def provider_details(settings: Settings | None = None) -> list[dict[str, Any]]:
+    """Per-provider status for the settings UI. Never returns the raw key."""
+    cfg = settings or get_settings()
+    active = get_active(cfg)
+    avail = available(cfg)
+    out: list[dict[str, Any]] = []
+    for name, meta in PROVIDER_META.items():
+        key = _key_for(name, cfg)
+        needs_key = bool(meta.get("key_field"))
+        ov = _overrides.get(name, {})
+        out.append(
+            {
+                "name": name,
+                "label": meta["label"],
+                "needsKey": needs_key,
+                "hasKey": bool(key) or not needs_key,
+                "keyHint": (f"…{key[-4:]}" if key and len(key) >= 4 else None),
+                "keySource": ("ui" if ov.get("api_key") else ("env" if key else None)),
+                "model": _effective_model(name, cfg),
+                "configured": name in avail,
+                "active": name == active,
+            }
+        )
+    return out
+
+
+def set_key(name: str, api_key: str, model: str | None = None, settings: Settings | None = None) -> None:
+    """Store a UI-pasted key (and optional model) for a provider; rebuild it."""
+    if name not in PROVIDER_META or not PROVIDER_META[name].get("key_field"):
+        raise ValueError(name)
+    entry = _overrides.get(name, {})
+    if api_key:
+        entry["api_key"] = api_key.strip()
+    if model:
+        entry["model"] = model.strip()
+    _overrides[name] = entry
+    _cache.pop(name, None)  # force rebuild with the new key
+    _save_overrides()
+    logger.info("provider %s key updated via UI", name)
+
+
+def clear_key(name: str) -> None:
+    _overrides.pop(name, None)
+    _cache.pop(name, None)
+    _save_overrides()
+    logger.info("provider %s UI key cleared", name)
+    # If the now-unconfigured provider was active, fall back.
+    global _active
+    if _active == name and name not in available():
+        _active = _default(get_settings())
+
+
+def test_provider(name: str, settings: Settings | None = None) -> dict[str, Any]:
+    """Make one tiny real call to verify a provider's key works."""
+    from .schemas import NewsSummaryResponse
+
+    cfg = settings or get_settings()
+    if name not in PROVIDER_META:
+        return {"ok": False, "detail": f"Unknown provider '{name}'."}
+    if name != "mock" and not _key_for(name, cfg):
+        return {"ok": False, "detail": "No API key configured for this provider."}
+    try:
+        provider = _BUILDERS[name](_effective_settings(name, cfg))
+        provider.analyze(
+            system_prompt="Reply with a single short test summary.",
+            user_payload={"headlines": [{"title": "Connectivity test"}]},
+            response_model=NewsSummaryResponse,
+        )
+        return {"ok": True, "detail": f"{PROVIDER_META[name]['label']} responded successfully."}
+    except HTTPException as exc:
+        return {"ok": False, "detail": str(exc.detail)}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "detail": f"{type(exc).__name__}: {exc}"}
+
+
 def _get_provider(name: str, settings: Settings) -> Provider:
     if name not in _cache:
-        _cache[name] = _BUILDERS[name](settings)
+        _cache[name] = _BUILDERS[name](_effective_settings(name, settings))
     return _cache[name]
 
 

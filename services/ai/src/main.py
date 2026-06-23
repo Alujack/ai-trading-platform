@@ -7,7 +7,16 @@ from dotenv import load_dotenv
 from fastapi import APIRouter, FastAPI, HTTPException
 from pydantic import BaseModel
 
-from .providers import analyze, available, get_active, set_active
+from .providers import (
+    analyze,
+    available,
+    clear_key,
+    get_active,
+    provider_details,
+    set_active,
+    set_key,
+    test_provider,
+)
 from .prompts import (
     JOURNAL_REVIEW_SYSTEM,
     MARKET_CONTEXT_SYSTEM,
@@ -40,20 +49,56 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+class ProviderDetail(BaseModel):
+    name: str
+    label: str
+    needsKey: bool
+    hasKey: bool
+    keyHint: str | None = None
+    keySource: str | None = None
+    model: str | None = None
+    configured: bool
+    active: bool
+
+
 class ProviderState(BaseModel):
     active: str
     available: list[str]
+    providers: list[ProviderDetail]
 
 
 class SetProviderBody(BaseModel):
     provider: str
 
 
+class SetKeyBody(BaseModel):
+    provider: str
+    apiKey: str
+    model: str | None = None
+
+
+class ProviderName(BaseModel):
+    provider: str
+
+
+class TestResult(BaseModel):
+    ok: bool
+    detail: str
+
+
+def _state() -> ProviderState:
+    cfg = get_settings()
+    return ProviderState(
+        active=get_active(cfg),
+        available=available(cfg),
+        providers=[ProviderDetail(**d) for d in provider_details(cfg)],
+    )
+
+
 @app.get("/provider", response_model=ProviderState)
 def provider_get() -> ProviderState:
-    """Current AI provider + the ones selectable given configured keys."""
-    cfg = get_settings()
-    return ProviderState(active=get_active(cfg), available=available(cfg))
+    """Current AI provider, selectable list, and per-provider config status."""
+    return _state()
 
 
 @app.post("/provider", response_model=ProviderState)
@@ -67,6 +112,30 @@ def provider_set(body: SetProviderBody) -> ProviderState:
             status_code=400,
             detail=f"Provider '{body.provider}' is not available. Choose one of {available(cfg)}.",
         ) from exc
+    return _state()
+
+
+@app.put("/provider/key", response_model=ProviderState)
+def provider_set_key(body: SetKeyBody) -> ProviderState:
+    """Save an API key (and optional model) for a provider, pasted from the UI."""
+    try:
+        set_key(body.provider, body.apiKey, body.model)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"'{body.provider}' does not accept a key.") from exc
+    return _state()
+
+
+@app.delete("/provider/key", response_model=ProviderState)
+def provider_clear_key(body: ProviderName) -> ProviderState:
+    """Remove a UI-set key for a provider (env keys, if any, remain)."""
+    clear_key(body.provider)
+    return _state()
+
+
+@app.post("/provider/test", response_model=TestResult)
+def provider_test(body: ProviderName) -> TestResult:
+    """Make one tiny real call to verify a provider's key works."""
+    return TestResult(**test_provider(body.provider))
     return ProviderState(active=get_active(cfg), available=available(cfg))
 
 
