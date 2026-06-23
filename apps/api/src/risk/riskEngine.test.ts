@@ -106,6 +106,13 @@ describe("validateRiskReward", () => {
     expect(r.acceptable).toBe(false);
   });
 
+  it("accepts an exact 1:2 RR despite float rounding (e.g. FX pip distances)", () => {
+    // 50-pip stop / 100-pip target on EURUSD: 0.0100 / 0.0050 = 1.9999999998 in float.
+    const r = validateRiskReward(1.1, 1.095, 1.11);
+    expect(r.rr).toBeLessThan(2); // float rounds just under
+    expect(r.acceptable).toBe(true); // ...but the epsilon-tolerant gate still accepts it
+  });
+
   it("handles zero risk gracefully", () => {
     expect(validateRiskReward(100, 100, 104)).toEqual({ rr: 0, acceptable: false });
   });

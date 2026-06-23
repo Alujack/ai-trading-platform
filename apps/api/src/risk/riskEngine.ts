@@ -3,6 +3,9 @@ import { prisma } from "../lib/prisma";
 const DAILY_LOSS_LIMIT_PCT = 3;
 const MAX_DRAWDOWN_PCT = 10;
 const MIN_RR = 2;
+// Tolerance so an exact-target ratio (e.g. 0.0100/0.0050) isn't rejected by
+// floating-point rounding to 1.9999999998.
+const RR_EPSILON = 1e-9;
 const NEWS_DEFAULT_BEFORE_MIN = 30;
 const NEWS_DEFAULT_AFTER_MIN = 30;
 
@@ -118,7 +121,7 @@ export function validateRiskReward(
     return { rr: 0, acceptable: false };
   }
   const rr = reward / risk;
-  const result: RiskRewardResult = { rr, acceptable: rr >= minRR };
+  const result: RiskRewardResult = { rr, acceptable: rr >= minRR - RR_EPSILON };
   log("validateRiskReward", { entry, stopLoss, takeProfit, rr, acceptable: result.acceptable });
   return result;
 }

@@ -9,11 +9,13 @@ from typing import Any, Callable
 
 from .base import Strategy
 from .meanrev_rsi import MeanRevRsi
+from .scalp_ema import ScalpEma
 from .trend_ema import TrendEma
 
 STRATEGY_FACTORIES: dict[str, Callable[[dict[str, Any] | None], Strategy]] = {
     "trend_ema": TrendEma,
     "meanrev_rsi": MeanRevRsi,
+    "scalp_ema": ScalpEma,
 }
 
 

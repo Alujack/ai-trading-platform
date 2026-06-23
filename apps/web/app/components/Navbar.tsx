@@ -1,6 +1,7 @@
 "use client";
 
 import { SYMBOLS, TIMEFRAMES, type Symbol, type Timeframe } from "@/lib/types";
+import { AiProviderToggle } from "./AiProviderToggle";
 
 interface NavbarProps {
   symbol: Symbol;
@@ -58,6 +59,9 @@ export function Navbar({ symbol, timeframe, onSymbolChange, onTimeframeChange }:
               ))}
             </select>
           </label>
+
+          <span className="hidden h-5 w-px bg-neutral-800 sm:block" aria-hidden />
+          <AiProviderToggle />
         </div>
       </div>
     </header>
