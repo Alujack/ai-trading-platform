@@ -5,7 +5,9 @@ EURUSD and BTCUSD go through Alpha Vantage's free daily endpoints.
 """
 from __future__ import annotations
 
+import asyncio
 import os
+import time
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
@@ -13,6 +15,24 @@ from typing import Any
 import httpx
 
 from db import CandleRow
+
+# ---- Rate limiting --------------------------------------------------------
+# Twelve Data's free tier allows ~8 requests/min. The worker runs several
+# timeframe loops concurrently, so without spacing they burst past the limit and
+# get 429'd (no data lands). This global throttle serializes Twelve Data calls
+# and spaces them out so requests actually succeed. Tune via env.
+_TD_MIN_INTERVAL_S = float(os.environ.get("TWELVEDATA_MIN_INTERVAL_S", "8"))
+_td_lock = asyncio.Lock()
+_td_last = 0.0
+
+
+async def _td_throttle() -> None:
+    global _td_last
+    async with _td_lock:
+        wait = _TD_MIN_INTERVAL_S - (time.monotonic() - _td_last)
+        if wait > 0:
+            await asyncio.sleep(wait)
+        _td_last = time.monotonic()
 
 # ---- Shared ---------------------------------------------------------------
 
@@ -98,6 +118,7 @@ async def _fetch_twelvedata(
     }
     if end_date is not None:
         params["end_date"] = end_date.strftime("%Y-%m-%d %H:%M:%S")
+    await _td_throttle()
     resp = await client.get(TWELVEDATA_URL, params=params, timeout=30.0)
     resp.raise_for_status()
     payload: dict[str, Any] = resp.json()

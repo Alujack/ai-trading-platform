@@ -1,4 +1,6 @@
 import { Prisma } from "@prisma/client";
+import { resolveRiskConfig } from "../config/resolve";
+import { decideExecution } from "../execution/executionPolicy";
 import { prisma } from "../lib/prisma";
 import { publishEvent } from "../lib/realtime";
 import { validateTrade, type Impact, type NewsLite } from "../risk/riskEngine";
@@ -125,6 +127,9 @@ export async function gateCandidate(candidate: SignalCandidate): Promise<GateRes
     take: NEWS_LOOKAHEAD,
   });
 
+  // Resolve runtime config for this (strategy, symbol) — most-specific-wins.
+  const cfg = await resolveRiskConfig(strategyName, symbol);
+
   const aiBody = {
     signal: {
       symbol,
@@ -177,7 +182,7 @@ export async function gateCandidate(candidate: SignalCandidate): Promise<GateRes
     return { status: "skipped", reason: `ai_service_unreachable: ${msg}` };
   }
 
-  const minScore = candidate.aiMinScore ?? DEFAULT_AI_MIN_SCORE;
+  const minScore = candidate.aiMinScore ?? cfg.aiMinScore ?? DEFAULT_AI_MIN_SCORE;
   if (typeof aiResult.score !== "number" || aiResult.score < minScore) {
     return { status: "rejected", reason: `ai_score_too_low score=${aiResult.score}`, score: aiResult.score };
   }
@@ -199,8 +204,15 @@ export async function gateCandidate(candidate: SignalCandidate): Promise<GateRes
     accountBalance: account.accountBalance,
     peakBalance: account.peakBalance,
     todayLoss,
-    riskPercent: account.riskPercent,
+    riskPercent: cfg.riskPerTradePct,
     upcomingNews: newsLite,
+    thresholds: {
+      minRR: cfg.minRR,
+      dailyLossLimitPct: cfg.dailyLossLimitPct,
+      maxDrawdownPct: cfg.maxDrawdownPct,
+      newsBeforeMin: cfg.newsBeforeMin,
+      newsAfterMin: cfg.newsAfterMin,
+    },
   });
 
   if (!risk.approved) {
@@ -238,6 +250,20 @@ export async function gateCandidate(candidate: SignalCandidate): Promise<GateRes
       },
     });
     void publishEvent({ type: "signal", symbol, timeframe });
+
+    // Execution decision (OFF / AUTO / CONFIRM). Runs AFTER risk approval —
+    // never instead of it. Best-effort: a decider hiccup must not undo the
+    // signal we just persisted (the sweep loop reconciles any PENDING signal).
+    try {
+      const decision = await decideExecution(signal);
+      console.log(
+        `[gate] decide signal=${signal.id} mode=${decision.mode} action=${decision.action}` +
+          (decision.reason ? ` reason="${decision.reason}"` : ""),
+      );
+    } catch (err) {
+      console.error("[gate] decideExecution failed:", err instanceof Error ? err.message : err);
+    }
+
     return { status: "generated", signalId: signal.id, score: aiResult.score };
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {

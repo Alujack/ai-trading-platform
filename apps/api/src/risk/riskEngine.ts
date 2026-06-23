@@ -163,6 +163,16 @@ export function isNewsWindow(
   return result;
 }
 
+/** Runtime-resolved thresholds. Any omitted field falls back to the legacy
+ *  constant, so callers that don't pass config behave exactly as before. */
+export interface RiskThresholds {
+  minRR?: number;
+  dailyLossLimitPct?: number;
+  maxDrawdownPct?: number;
+  newsBeforeMin?: number;
+  newsAfterMin?: number;
+}
+
 export interface ValidateTradeInput {
   userId: string;
   symbol: string;
@@ -174,6 +184,7 @@ export interface ValidateTradeInput {
   todayLoss: number;
   riskPercent: number;
   upcomingNews: NewsLite[];
+  thresholds?: RiskThresholds;
 }
 
 export interface ValidateTradeResult {
@@ -184,6 +195,12 @@ export interface ValidateTradeResult {
 
 export async function validateTrade(input: ValidateTradeInput): Promise<ValidateTradeResult> {
   const reasons: string[] = [];
+  const t = input.thresholds ?? {};
+  const minRR = t.minRR ?? MIN_RR;
+  const dailyLossLimitPct = t.dailyLossLimitPct ?? DAILY_LOSS_LIMIT_PCT;
+  const maxDrawdownPct = t.maxDrawdownPct ?? MAX_DRAWDOWN_PCT;
+  const newsBeforeMin = t.newsBeforeMin ?? NEWS_DEFAULT_BEFORE_MIN;
+  const newsAfterMin = t.newsAfterMin ?? NEWS_DEFAULT_AFTER_MIN;
 
   let positionSize = 0;
   try {
@@ -198,18 +215,18 @@ export async function validateTrade(input: ValidateTradeInput): Promise<Validate
     reasons.push(err instanceof Error ? err.message : "Invalid position size inputs");
   }
 
-  const daily = checkDailyLoss(input.userId, input.todayLoss, input.accountBalance);
+  const daily = checkDailyLoss(input.userId, input.todayLoss, input.accountBalance, dailyLossLimitPct);
   if (!daily.allowed) reasons.push(daily.reason);
 
-  const dd = checkMaxDrawdown(input.peakBalance, input.accountBalance);
+  const dd = checkMaxDrawdown(input.peakBalance, input.accountBalance, maxDrawdownPct);
   if (!dd.allowed) reasons.push(dd.reason);
 
-  const rr = validateRiskReward(input.entry, input.stopLoss, input.takeProfit);
+  const rr = validateRiskReward(input.entry, input.stopLoss, input.takeProfit, minRR);
   if (!rr.acceptable) {
-    reasons.push(`Risk/reward ${rr.rr.toFixed(2)} below minimum ${MIN_RR}`);
+    reasons.push(`Risk/reward ${rr.rr.toFixed(2)} below minimum ${minRR}`);
   }
 
-  const news = isNewsWindow(input.upcomingNews);
+  const news = isNewsWindow(input.upcomingNews, newsBeforeMin, newsAfterMin);
   if (!news.safe) {
     reasons.push(
       news.nearestEvent
@@ -219,7 +236,7 @@ export async function validateTrade(input: ValidateTradeInput): Promise<Validate
   }
 
   const approved = reasons.length === 0;
-  const dailyLossLimit = input.accountBalance * (DAILY_LOSS_LIMIT_PCT / 100);
+  const dailyLossLimit = input.accountBalance * (dailyLossLimitPct / 100);
 
   try {
     await prisma.riskLog.create({

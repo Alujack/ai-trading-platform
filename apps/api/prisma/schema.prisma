@@ -30,6 +30,19 @@ enum TradeStatus {
   CLOSED
 }
 
+enum ExecutionMode {
+  OFF // kill-switch: signals are generated + logged, never executed
+  AUTO // open immediately after AI+risk approval (today's behavior)
+  CONFIRM // require a Telegram Approve before opening
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
 model Candle {
   id        String   @id @default(cuid())
   symbol    String
@@ -102,6 +115,7 @@ model Signal {
   status          SignalStatus @default(PENDING)
   createdAt       DateTime     @default(now())
   trades          Trade[]
+  approval        Approval?
 
   @@index([symbol, status])
   @@index([strategyName])
@@ -149,4 +163,70 @@ model RiskLog {
   createdAt             DateTime @default(now())
 
   @@index([createdAt])
+}
+
+// Runtime-controllable risk parameters, resolved most-specific-wins
+// (SYMBOL ► STRATEGY ► GLOBAL). Override rows set only the fields they change;
+// nulls fall through to the next scope, then to code defaults (config/defaults.ts).
+model RiskConfig {
+  id                    String   @id @default(cuid())
+  scope                 String // "GLOBAL" | "STRATEGY" | "SYMBOL"
+  scopeKey              String // ""(global) | strategyName | symbol
+  riskPerTradePct       Decimal? @db.Decimal(7, 4)
+  minRR                 Decimal? @db.Decimal(7, 4)
+  dailyLossLimitPct     Decimal? @db.Decimal(7, 4)
+  maxDrawdownPct        Decimal? @db.Decimal(7, 4)
+  maxOpenTrades         Int?
+  maxOpenRiskPct        Decimal? @db.Decimal(7, 4)
+  maxRiskPerCurrencyPct Decimal? @db.Decimal(7, 4)
+  newsBeforeMin         Int?
+  newsAfterMin          Int?
+  aiMinScore            Int?
+  approvalTtlMin        Int?
+  enabled               Boolean  @default(true)
+  updatedAt             DateTime @updatedAt
+
+  @@unique([scope, scopeKey])
+}
+
+// Per-scope OFF/AUTO/CONFIRM execution behaviour.
+model ExecutionSetting {
+  id        String        @id @default(cuid())
+  scope     String // "GLOBAL" | "STRATEGY" | "SYMBOL"
+  scopeKey  String
+  mode      ExecutionMode @default(CONFIRM)
+  updatedAt DateTime      @updatedAt
+
+  @@unique([scope, scopeKey])
+}
+
+// Who-changed-what audit trail for every config/mode write.
+model ConfigAudit {
+  id        String   @id @default(cuid())
+  actor     String // "ui:yan" | "telegram:<id>" | "system"
+  entity    String // "RiskConfig" | "ExecutionSetting"
+  scope     String
+  scopeKey  String
+  before    Json
+  after     Json
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+// Human-in-the-loop approval for CONFIRM-mode signals.
+model Approval {
+  id        String         @id @default(cuid())
+  signalId  String         @unique
+  signal    Signal         @relation(fields: [signalId], references: [id])
+  status    ApprovalStatus @default(PENDING)
+  chatId    String
+  messageId String? // Telegram message id (for editMessageText)
+  decidedBy String? // Telegram user id/name who acted
+  decidedAt DateTime?
+  expiresAt DateTime
+  createdAt DateTime       @default(now())
+
+  @@index([status])
+  @@index([expiresAt])
 }

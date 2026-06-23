@@ -1,13 +1,18 @@
 import cron, { type ScheduledTask } from "node-cron";
-import { monitorOpenTrades, runWeeklyJournalReview, sweepPendingSignals } from "./paperTrading";
+import { reconcilePendingSignals } from "./executionPolicy";
+import { monitorOpenTrades, runWeeklyJournalReview } from "./paperTrading";
+import { expireStaleApprovals } from "../telegram/approvals";
 
 const PAPER_CRON = "*/5 * * * *";
 const WEEKLY_CRON = "0 0 * * 0"; // Sunday 00:00 UTC
+const EXPIRY_CRON = "* * * * *"; // every minute — approvals are perishable
 
 let paperTask: ScheduledTask | null = null;
 let weeklyTask: ScheduledTask | null = null;
+let expiryTask: ScheduledTask | null = null;
 let paperRunning = false;
 let weeklyRunning = false;
+let expiryRunning = false;
 
 async function runPaperTick(): Promise<void> {
   if (paperRunning) {
@@ -18,9 +23,9 @@ async function runPaperTick(): Promise<void> {
   const startedAt = new Date().toISOString();
   console.log(`[paperCron] ${startedAt} run_start`);
   try {
-    const swept = await sweepPendingSignals();
+    const rec = await reconcilePendingSignals();
     console.log(
-      `[paperCron] ${new Date().toISOString()} sweep scanned=${swept.scanned} opened=${swept.opened} skipped=${swept.skipped}`,
+      `[paperCron] ${new Date().toISOString()} reconcile scanned=${rec.scanned} opened=${rec.opened} awaiting=${rec.awaiting} held=${rec.held} blocked=${rec.blocked}`,
     );
     const mon = await monitorOpenTrades();
     console.log(
@@ -56,12 +61,34 @@ async function runWeeklyTick(): Promise<void> {
   }
 }
 
+async function runExpiryTick(): Promise<void> {
+  if (expiryRunning) return;
+  expiryRunning = true;
+  try {
+    const r = await expireStaleApprovals();
+    if (r.expired > 0) {
+      console.log(`[approvalExpiry] ${new Date().toISOString()} expired=${r.expired}`);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[approvalExpiry] ${new Date().toISOString()} error="${msg}"`);
+  } finally {
+    expiryRunning = false;
+  }
+}
+
 export function startPaperTradingScheduler(): void {
   if (paperTask) return;
   console.log(`[paperCron] scheduled "${PAPER_CRON}"`);
   paperTask = cron.schedule(PAPER_CRON, () => {
     void runPaperTick();
   });
+  if (!expiryTask) {
+    console.log(`[approvalExpiry] scheduled "${EXPIRY_CRON}"`);
+    expiryTask = cron.schedule(EXPIRY_CRON, () => {
+      void runExpiryTick();
+    });
+  }
 }
 
 export function startWeeklyReviewScheduler(): void {
@@ -82,6 +109,11 @@ export function stopExecutionSchedulers(): void {
     weeklyTask.stop();
     weeklyTask = null;
     console.log("[weeklyReviewCron] stopped");
+  }
+  if (expiryTask) {
+    expiryTask.stop();
+    expiryTask = null;
+    console.log("[approvalExpiry] stopped");
   }
 }
 

@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   Radio,
   CandlestickChart,
+  BookOpen,
   ShieldCheck,
   Settings,
   type LucideIcon,
@@ -16,6 +17,7 @@ const ITEMS: { href: string; label: string; Icon: LucideIcon }[] = [
   { href: "/", label: "Home", Icon: LayoutDashboard },
   { href: "/signals", label: "Signals", Icon: Radio },
   { href: "/trades", label: "Trades", Icon: CandlestickChart },
+  { href: "/journal", label: "Journal", Icon: BookOpen },
   { href: "/risk", label: "Risk", Icon: ShieldCheck },
 ];
 

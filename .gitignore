@@ -22,6 +22,10 @@ next-env.d.ts
 .provider_overrides.json
 services/ai/.provider_overrides.json
 
+# Telegram credentials pasted via the UI (never commit)
+.telegram-overrides.json
+apps/api/.telegram-overrides.json
+
 # Python
 __pycache__/
 *.py[cod]

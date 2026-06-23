@@ -9,6 +9,7 @@
     "start": "node dist/index.js",
     "lint": "eslint src --ext .ts",
     "typecheck": "tsc --noEmit",
+    "telegram": "tsx scripts/telegram.ts",
     "test": "vitest run"
   },
   "dependencies": {

@@ -1,20 +1,30 @@
 "use client";
 
-import { AiReadPanel } from "../components/dash/AiReadPanel";
-import { useDash } from "../components/dash/DashContext";
+import { ExecutionControlPanel, RiskControlPanel } from "../components/dash/ControlsPanel";
 import { KpiStrip } from "../components/dash/KpiStrip";
 import { NewsPanel } from "../components/dash/NewsPanel";
 import { RiskEnginePanel } from "../components/dash/RiskEnginePanel";
 
 export default function RiskPage() {
-  const { symbol, timeframe } = useDash();
-
   return (
     <>
       <KpiStrip />
-      <section style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16, alignItems: "start" }}>
+      <section
+        style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}
+      >
+        <ExecutionControlPanel />
         <RiskEnginePanel />
-        <AiReadPanel symbol={symbol} timeframe={timeframe} />
+      </section>
+      <section
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1.4fr 1fr",
+          gap: 16,
+          alignItems: "start",
+          marginTop: 16,
+        }}
+      >
+        <RiskControlPanel />
         <NewsPanel />
       </section>
     </>

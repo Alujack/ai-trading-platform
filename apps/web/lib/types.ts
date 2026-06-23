@@ -129,6 +129,81 @@ export interface PositionsResponse {
   positions: Position[];
 }
 
+export interface JournalEntry {
+  id: string;
+  notes: string;
+  aiReview: string;
+  emotions: string | null;
+  createdAt: string;
+  symbol: string;
+  direction: SignalDirection;
+  strategyName: string | null;
+  status: string;
+  profitLoss: number | null;
+  closedAt: string | null;
+}
+
+export interface JournalResponse {
+  data: JournalEntry[];
+  count: number;
+}
+
+// ---- Control layer (risk config + execution modes) ----
+
+export type ExecutionMode = "OFF" | "AUTO" | "CONFIRM";
+export type ConfigScope = "GLOBAL" | "STRATEGY" | "SYMBOL";
+
+export interface EffectiveRiskConfig {
+  riskPerTradePct: number;
+  minRR: number;
+  dailyLossLimitPct: number;
+  maxDrawdownPct: number;
+  maxOpenTrades: number;
+  maxOpenRiskPct: number;
+  maxRiskPerCurrencyPct: number;
+  newsBeforeMin: number;
+  newsAfterMin: number;
+  aiMinScore: number;
+  approvalTtlMin: number;
+}
+
+export interface RiskBound {
+  min: number;
+  max: number;
+  int?: boolean;
+}
+
+export interface RiskConfigResponse {
+  effective: EffectiveRiskConfig;
+  rows: Array<{ scope: ConfigScope; scopeKey: string; enabled: boolean }>;
+  bounds: Record<keyof EffectiveRiskConfig, RiskBound>;
+}
+
+export interface ExecutionMapResponse {
+  global: ExecutionMode;
+  rows: Array<{ scope: ConfigScope; scopeKey: string; mode: ExecutionMode }>;
+}
+
+// ---- Telegram bridge config (UI-pasted credentials) ----
+
+export type ConfigFieldSource = "ui" | "env" | "none";
+
+export interface TelegramStatus {
+  configured: boolean;
+  hasToken: boolean;
+  tokenHint: string | null;
+  chatId: string | null;
+  allowedUserIds: string[];
+  hasWebhookSecret: boolean;
+  sources: {
+    botToken: ConfigFieldSource;
+    chatId: ConfigFieldSource;
+    webhookSecret: ConfigFieldSource;
+    allowedUserIds: ConfigFieldSource;
+  };
+  webhook?: { url: string; pending: number; lastError?: string } | null;
+}
+
 export type MarketBias = "Bullish" | "Bearish" | "Neutral";
 
 export interface MarketContext {
