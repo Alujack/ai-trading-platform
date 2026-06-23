@@ -18,8 +18,10 @@ from dotenv import load_dotenv
 from db import close_pool, init_pool, upsert_candles
 from fetcher import SYMBOL_MAP, fetch_candles
 from indicator_calculator import calculate_indicators
-from news_fetcher import ingest_alpha_vantage_news, ingest_forexfactory
 from strategy_runner import run_once as run_strategy_scan
+
+# News ingestion moved to the n8n automation layer (see docs/plans/06-…). The
+# worker is back to a single job: candles → indicators → strategies.
 
 SYMBOLS = list(SYMBOL_MAP.keys())  # XAUUSD, EURUSD, BTCUSD
 
@@ -34,11 +36,6 @@ TIMEFRAME_PERIOD_SECONDS: dict[str, int] = {
     "60min": 60 * 60,
     "daily": 60 * 60,
 }
-
-# News ingestion cadence. ForexFactory's weekly calendar refreshes daily (with
-# intraday corrections); Alpha Vantage headlines turn over much faster.
-FOREXFACTORY_PERIOD_SECONDS = 24 * 60 * 60
-AV_NEWS_PERIOD_SECONDS = 4 * 60 * 60
 
 # Strategy runner cadence (matches the retired TS signal cron's 15-min tick).
 STRATEGY_PERIOD_SECONDS = 15 * 60
@@ -127,8 +124,6 @@ async def main() -> None:
                     _scheduled_loop(tf, client, period)
                     for tf, period in TIMEFRAME_PERIOD_SECONDS.items()
                 ),
-                _periodic_loop("forexfactory", ingest_forexfactory, client, FOREXFACTORY_PERIOD_SECONDS),
-                _periodic_loop("alpha_vantage", ingest_alpha_vantage_news, client, AV_NEWS_PERIOD_SECONDS),
                 _periodic_loop("strategy_runner", run_strategy_scan, client, STRATEGY_PERIOD_SECONDS),
             )
         finally:

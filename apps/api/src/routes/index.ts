@@ -3,6 +3,7 @@ import aiProviderRouter from "./aiProvider.routes";
 import candlesRouter from "./candles.routes";
 import healthRouter from "./health.routes";
 import marketContextRouter from "./marketContext.routes";
+import newsAlertRouter from "./newsAlert.routes";
 import performanceRouter from "./performance.routes";
 import signalsRouter from "./signals.routes";
 import symbolsRouter from "./symbols.routes";
@@ -16,5 +17,6 @@ router.use(signalsRouter);
 router.use(performanceRouter);
 router.use(marketContextRouter);
 router.use(aiProviderRouter);
+router.use(newsAlertRouter);
 
 export default router;

@@ -25,17 +25,6 @@ class CandleRow:
     volume: Decimal
 
 
-@dataclass(slots=True)
-class NewsEventRow:
-    title: str
-    impact: str  # "LOW" | "MEDIUM" | "HIGH"
-    currency: str
-    scheduled_at: datetime
-    actual: str | None = None
-    forecast: str | None = None
-    previous: str | None = None
-
-
 async def init_pool() -> asyncpg.Pool:
     global _pool
     if _pool is not None:
@@ -86,41 +75,4 @@ async def upsert_candles(rows: Iterable[CandleRow]) -> int:
         return 0
     async with pool.acquire() as conn:
         await conn.executemany(UPSERT_SQL, payload)
-    return len(payload)
-
-
-UPSERT_NEWS_SQL = """
-INSERT INTO "NewsEvent" (
-    "id", "title", "impact", "currency", "scheduledAt", "actual", "forecast", "previous"
-)
-VALUES ($1, $2, $3::"Impact", $4, $5, $6, $7, $8)
-ON CONFLICT ("title", "scheduledAt") DO UPDATE SET
-    "impact"   = EXCLUDED."impact",
-    "currency" = EXCLUDED."currency",
-    "actual"   = EXCLUDED."actual",
-    "forecast" = EXCLUDED."forecast",
-    "previous" = EXCLUDED."previous"
-"""
-
-
-async def upsert_news_events(rows: Iterable[NewsEventRow]) -> int:
-    """Upsert calendar/news rows, deduped on (title, scheduledAt)."""
-    pool = await init_pool()
-    payload = [
-        (
-            uuid.uuid4().hex,
-            r.title,
-            r.impact,
-            r.currency,
-            r.scheduled_at,
-            r.actual,
-            r.forecast,
-            r.previous,
-        )
-        for r in rows
-    ]
-    if not payload:
-        return 0
-    async with pool.acquire() as conn:
-        await conn.executemany(UPSERT_NEWS_SQL, payload)
     return len(payload)

@@ -11,6 +11,8 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      # Creates the `n8n` database on first init (see infra/postgres/init).
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-trading}"]
       interval: 10s
@@ -32,6 +34,44 @@ services:
       timeout: 5s
       retries: 5
 
+  # News-automation layer. Polls economic-calendar + headline feeds on a
+  # schedule, normalizes, dedupes, and upserts into the trading DB's NewsEvent
+  # table. Keeps brittle news plumbing out of the Python worker.
+  # See docs/plans/06-n8n-migration-buildplan.md.
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: trading-n8n
+    restart: unless-stopped
+    ports:
+      - "${N8N_PORT:-5678}:5678"
+    environment:
+      # n8n's own state lives in a separate `n8n` database (created on init).
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=n8n
+      - DB_POSTGRESDB_USER=${POSTGRES_USER:-postgres}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      # Required: encrypts stored credentials. Generate: openssl rand -hex 24
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      # Time-window math in the risk engine assumes UTC end-to-end.
+      - GENERIC_TIMEZONE=UTC
+      - TZ=UTC
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_HOST=${N8N_HOST:-localhost}
+      - N8N_PORT=5678
+      - WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://localhost:5678/}
+      # Workflow B reads these. The AI URL uses host.docker.internal because the
+      # AI service runs on the host, not in this compose network.
+      - ALPHA_VANTAGE_API_KEY=${ALPHA_VANTAGE_API_KEY:-}
+      - NEWS_SUMMARY_URL=http://host.docker.internal:8000/analyze/news-summary
+    volumes:
+      - n8n-data:/home/node/.n8n
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   postgres-data:
   redis-data:
+  n8n-data:

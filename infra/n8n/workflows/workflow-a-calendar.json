@@ -1,0 +1,120 @@
+{
+  "id": "wfcalendar000001",
+  "name": "Workflow A — Economic Calendar → NewsEvent",
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "UTC"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 6
+            }
+          ]
+        }
+      },
+      "id": "a1111111-1111-4111-8111-111111111111",
+      "name": "Every 6h",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        240,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://nfs.faireconomy.media/ff_calendar_thisweek.json",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "a2222222-2222-4222-8222-222222222222",
+      "name": "ForexFactory weekly",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        300
+      ],
+      "onError": "stopWorkflow"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize ForexFactory weekly calendar into a single upsert statement.\n// Mirrors services/data/news_fetcher.py exactly so behavior is identical.\nfunction esc(v) {\n  if (v === null || v === undefined || v === '') return 'NULL';\n  return \"'\" + String(v).replace(/'/g, \"''\") + \"'\";\n}\nfunction hashId(s) {\n  let h = 5381;\n  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;\n  return 'ff_' + h.toString(16);\n}\nconst IMPACT = { high: 'HIGH', medium: 'MEDIUM', low: 'LOW' };\nfunction eventsFrom(j) {\n  if (Array.isArray(j)) return j;\n  if (j && Array.isArray(j.body)) return j.body;\n  if (j && Array.isArray(j.data)) return j.data;\n  if (j && j.title) return [j]; // HTTP node already split a root array into items\n  return [];\n}\n\nconst rows = [];\nfor (const item of $input.all()) {\n  for (const e of eventsFrom(item.json)) {\n    const impact = IMPACT[String(e.impact || '').trim().toLowerCase()];\n    if (!impact) continue;                 // drop Holiday / blank — not tradable\n    const title = String(e.title || '').trim();\n    if (!title || !e.date) continue;\n    const d = new Date(e.date);            // ISO-8601 with offset, e.g. ...-05:00\n    if (isNaN(d.getTime())) continue;\n    // Store naive UTC to match TIMESTAMP WITHOUT TIME ZONE columns and the risk\n    // engine's UTC window math. THIS is the #1 bug risk — keep it UTC.\n    const scheduledAt = d.toISOString().slice(0, 19).replace('T', ' ');\n    const currency = String(e.country || '').trim().toUpperCase() || 'UNKNOWN';\n    const id = hashId(title + '|' + scheduledAt);\n    rows.push('(' + [\n      esc(id), esc(title), esc(impact), esc(currency), esc(scheduledAt),\n      esc(e.forecast), esc(e.previous), esc(e.actual)\n    ].join(',') + ', now())');\n  }\n}\n\nlet query;\nif (rows.length === 0) {\n  query = 'SELECT 1';\n} else {\n  query =\n    'INSERT INTO \"NewsEvent\" (\"id\",\"title\",\"impact\",\"currency\",\"scheduledAt\",\"forecast\",\"previous\",\"actual\",\"createdAt\") VALUES ' +\n    rows.join(',') +\n    ' ON CONFLICT (\"title\",\"scheduledAt\") DO UPDATE SET \"actual\"=EXCLUDED.\"actual\",\"forecast\"=EXCLUDED.\"forecast\",\"impact\"=EXCLUDED.\"impact\",\"currency\"=EXCLUDED.\"currency\";';\n}\nreturn [{ json: { query, rowCount: rows.length } }];"
+      },
+      "id": "a3333333-3333-4333-8333-333333333333",
+      "name": "Normalize → upsert SQL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ $json.query }}",
+        "options": {}
+      },
+      "id": "a4444444-4444-4444-8444-444444444444",
+      "name": "Upsert NewsEvent",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        900,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "tradingdbcred0001",
+          "name": "Trading DB"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every 6h": {
+      "main": [
+        [
+          {
+            "node": "ForexFactory weekly",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ForexFactory weekly": {
+      "main": [
+        [
+          {
+            "node": "Normalize → upsert SQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize → upsert SQL": {
+      "main": [
+        [
+          {
+            "node": "Upsert NewsEvent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

@@ -1,0 +1,333 @@
+<title>Trading Platform — Architecture v2 (n8n news layer)</title>
+<style>
+  :root {
+    /* palette_commit — frame: deep terminal / blue-green; ground reads navy-black */
+    --ground: #0a0e14;
+    --panel: #111824;
+    --panel-2: #0d141e;
+    --line: #1e2b3a;
+    --text: #c4d0de;
+    --dim: #6b7a8d;
+    --tape: #e8c15a;     /* signal/amber — the assistant's voice */
+    --buy: #4fb286;      /* long / pass */
+    --sell: #e0594d;     /* short / reject */
+    --wire: #3a5a78;     /* data flow */
+    --ai: #8a7fe0;       /* AI / inference */
+    --n8n: #d96f8e;      /* n8n automation layer — the new thing */
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+    --sans: "Inter", system-ui, -apple-system, sans-serif;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background:
+      radial-gradient(1200px 600px at 75% -10%, #131d2b 0%, transparent 60%),
+      var(--ground);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    padding: clamp(20px, 4vw, 56px);
+  }
+
+  .wrap { max-width: 1180px; margin: 0 auto; }
+
+  /* ---- masthead: reads like a trading terminal header ---- */
+  header { border-bottom: 1px solid var(--line); padding-bottom: 22px; margin-bottom: 34px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.32em;
+    text-transform: uppercase;
+    color: var(--tape);
+    margin: 0 0 12px;
+  }
+  h1 {
+    font-family: var(--sans);
+    font-weight: 700;
+    font-size: clamp(28px, 5vw, 46px);
+    letter-spacing: -0.02em;
+    margin: 0 0 10px;
+    line-height: 1.05;
+  }
+  h1 .v { color: var(--n8n); }
+  .sub { color: var(--dim); max-width: 64ch; margin: 0; font-size: 15px; }
+
+  .ticker {
+    display: flex; flex-wrap: wrap; gap: 8px 22px;
+    margin-top: 20px; font-family: var(--mono); font-size: 12px; color: var(--dim);
+  }
+  .ticker b { color: var(--text); font-weight: 600; }
+  .ticker .up { color: var(--buy); }
+  .ticker .new { color: var(--n8n); }
+
+  /* ---- flow diagram ---- */
+  .flow {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    margin: 8px 0 40px;
+  }
+  @media (max-width: 880px) { .flow { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 520px) { .flow { grid-template-columns: 1fr; } }
+
+  .lane-label {
+    grid-column: 1 / -1;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--dim);
+    margin: 22px 0 -4px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .lane-label::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  .lane-label.first { margin-top: 0; }
+
+  .node {
+    background: linear-gradient(180deg, var(--panel) 0%, var(--panel-2) 100%);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 16px 14px;
+    position: relative;
+    min-height: 104px;
+  }
+  .node h3 {
+    font-size: 14px; margin: 0 0 4px; font-weight: 650; letter-spacing: -0.01em;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .node p { margin: 0; font-size: 12.5px; color: var(--dim); }
+  .node code { font-family: var(--mono); font-size: 11px; color: var(--text); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .tag {
+    position: absolute; top: 12px; right: 14px;
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: 0.08em;
+    text-transform: uppercase; color: var(--dim);
+  }
+
+  .accent-n8n { border-color: var(--n8n); box-shadow: 0 0 0 1px rgba(217,111,142,0.25), 0 10px 30px -18px var(--n8n); }
+  .accent-n8n .dot { background: var(--n8n); }
+  .accent-ai { border-color: rgba(138,127,224,0.55); }
+  .accent-ai .dot { background: var(--ai); }
+  .accent-gate { border-color: rgba(232,193,90,0.5); }
+  .accent-gate .dot { background: var(--tape); }
+  .dot.wire { background: var(--wire); }
+  .dot.store { background: var(--buy); }
+
+  .span2 { grid-column: span 2; }
+  @media (max-width: 520px) { .span2 { grid-column: span 1; } }
+
+  /* the gate — emphasized as the single chokepoint */
+  .gate {
+    grid-column: 1 / -1;
+    background: linear-gradient(90deg, rgba(232,193,90,0.06), rgba(17,24,36,0.9) 40%);
+    border: 1px solid var(--tape);
+    border-radius: 10px;
+    padding: 18px 20px;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 14px 26px;
+  }
+  .gate .lead { font-weight: 700; font-size: 15px; color: var(--tape); display: flex; align-items: center; gap: 9px; }
+  .gate .step { font-family: var(--mono); font-size: 12px; color: var(--text); }
+  .gate .arrow { color: var(--dim); }
+  .gate .note { font-size: 12px; color: var(--dim); width: 100%; margin-top: 2px; }
+
+  /* ---- callout strip ---- */
+  .strip {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 40px 0;
+  }
+  @media (max-width: 760px) { .strip { grid-template-columns: 1fr; } }
+  .card {
+    border: 1px solid var(--line); border-radius: 10px; padding: 18px; background: var(--panel-2);
+  }
+  .card h4 { margin: 0 0 8px; font-size: 13px; letter-spacing: 0.02em; }
+  .card.changed h4 { color: var(--n8n); }
+  .card.kept h4 { color: var(--buy); }
+  .card.gone h4 { color: var(--sell); }
+  .card ul { margin: 0; padding-left: 16px; }
+  .card li { font-size: 13px; color: var(--dim); margin-bottom: 5px; }
+  .card li b { color: var(--text); font-weight: 600; }
+  .card code { font-family: var(--mono); font-size: 11px; color: var(--text); }
+  s { color: var(--sell); opacity: 0.7; }
+
+  /* ---- data flow legend ---- */
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 18px; padding: 16px 0 0;
+    border-top: 1px solid var(--line); margin-top: 8px;
+    font-family: var(--mono); font-size: 11.5px; color: var(--dim);
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; }
+  .legend .k { width: 10px; height: 10px; border-radius: 3px; }
+
+  footer { margin-top: 38px; color: var(--dim); font-size: 12px; font-family: var(--mono); }
+  footer a { color: var(--wire); }
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">AI Trading Intelligence · System Architecture</p>
+    <h1>Data in, one gate out — <span class="v">v2: n8n news layer</span></h1>
+    <p class="sub">
+      News ingestion moves out of the Python worker into a self-hosted n8n automation layer.
+      Every trade still passes through a single AI + risk gate before it becomes a journaled signal.
+      The worker goes back to one job: turn prices into strategy candidates.
+    </p>
+    <div class="ticker">
+      <span><b class="up">●</b> paper trading</span>
+      <span>symbols <b>XAUUSD · EURUSD · BTCUSD</b></span>
+      <span>R:R floor <b>1:2</b></span>
+      <span>AI <b>Mock / Claude / Gemini</b> (toggle)</span>
+      <span class="new">▲ new: n8n news automation</span>
+    </div>
+  </header>
+
+  <div class="flow">
+
+    <!-- LANE 1: sources -->
+    <div class="lane-label first">01 · External feeds</div>
+
+    <div class="node">
+      <span class="tag">market data</span>
+      <h3><span class="dot wire"></span>Twelve Data</h3>
+      <p>OHLCV candles per symbol &amp; timeframe.</p>
+    </div>
+    <div class="node accent-n8n">
+      <span class="tag">→ n8n</span>
+      <h3><span class="dot"></span>ForexFactory</h3>
+      <p>Weekly economic calendar. High-impact events the risk gate blocks around.</p>
+    </div>
+    <div class="node accent-n8n">
+      <span class="tag">→ n8n</span>
+      <h3><span class="dot"></span>Alpha Vantage + RSS</h3>
+      <p>Breaking headlines, Fed / ECB / BoJ feeds.</p>
+    </div>
+    <div class="node">
+      <span class="tag">inference</span>
+      <h3><span class="dot" style="background:var(--ai)"></span>Gemini / Claude</h3>
+      <p>Provider chosen at runtime by the dashboard toggle.</p>
+    </div>
+
+    <!-- LANE 2: ingestion -->
+    <div class="lane-label">02 · Ingestion</div>
+
+    <div class="node">
+      <span class="tag">services/data</span>
+      <h3><span class="dot wire"></span>Python worker</h3>
+      <p>Candles → indicators (EMA/RSI/ATR) → <b>strategy runner</b>. <code>news loops removed</code></p>
+    </div>
+
+    <div class="node accent-n8n span2">
+      <span class="tag">n8n · self-hosted</span>
+      <h3><span class="dot"></span>News automation layer</h3>
+      <p>
+        <b>Workflow A</b> calendar → normalize (UTC) → dedupe → upsert <code>NewsEvent</code>.<br>
+        <b>Workflow B</b> headlines → <code>/analyze/news-summary</code> → tag impact → upsert.
+      </p>
+    </div>
+
+    <div class="node accent-ai">
+      <span class="tag">services/ai</span>
+      <h3><span class="dot"></span>AI service</h3>
+      <p>FastAPI. <code>/analyze/*</code> + <code>/provider</code>. One <code>analyze()</code> honors the toggle.</p>
+    </div>
+
+    <!-- LANE 3: store -->
+    <div class="lane-label">03 · Shared store</div>
+    <div class="node span2">
+      <span class="tag">postgres + timescale</span>
+      <h3><span class="dot store"></span>Trading database</h3>
+      <p><code>Candle</code> · <code>Indicator</code> · <code>NewsEvent</code> · <code>Signal</code> · <code>RiskLog</code> · <code>Strategy</code> — n8n writes <code>NewsEvent</code> directly via its Postgres node.</p>
+    </div>
+    <div class="node">
+      <span class="tag">redis</span>
+      <h3><span class="dot wire"></span>Cache / queue</h3>
+      <p>Real-time cache, news-blackout flags, job state.</p>
+    </div>
+    <div class="node">
+      <span class="tag">postgres</span>
+      <h3><span class="dot" style="background:var(--n8n)"></span>n8n state DB</h3>
+      <p>Separate <code>n8n</code> database for workflow internals.</p>
+    </div>
+
+    <!-- THE GATE -->
+    <div class="lane-label">04 · The one gate — every trade passes here</div>
+    <div class="gate">
+      <span class="lead"><span class="dot" style="background:var(--tape)"></span>gateCandidate()</span>
+      <span class="step">strategy candidate</span>
+      <span class="arrow">→</span>
+      <span class="step" style="color:var(--ai)">AI validate</span>
+      <span class="arrow">→</span>
+      <span class="step" style="color:var(--tape)">risk engine</span>
+      <span class="arrow">→</span>
+      <span class="step" style="color:var(--buy)">journaled Signal</span>
+      <p class="note">Risk engine enforces 1:2 R:R, daily-loss &amp; drawdown limits, and the ±30-min HIGH-impact news blackout — fed entirely by the rows n8n now writes. Reject reasons are journaled too.</p>
+    </div>
+
+    <!-- LANE 5: surface -->
+    <div class="lane-label">05 · Dashboard (Next.js)</div>
+    <div class="node accent-gate">
+      <span class="tag">apps/web</span>
+      <h3><span class="dot"></span>Trade Setup panel</h3>
+      <p>BUY/SELL, entry · stop · target, pips &amp; $ at 0.01 lot, AI reasoning.</p>
+    </div>
+    <div class="node">
+      <span class="tag">lightweight-charts</span>
+      <h3><span class="dot wire"></span>Signal chart</h3>
+      <p>Entry / stop / target price lines drawn on the candles.</p>
+    </div>
+    <div class="node accent-ai">
+      <span class="tag">navbar</span>
+      <h3><span class="dot"></span>Provider toggle</h3>
+      <p>Switch Mock / Claude / Gemini live.</p>
+    </div>
+    <div class="node">
+      <span class="tag">localhost:5678</span>
+      <h3><span class="dot" style="background:var(--n8n)"></span>n8n UI</h3>
+      <p>Visual execution history — see each feed's payload per run.</p>
+    </div>
+
+  </div>
+
+  <div class="strip">
+    <div class="card changed">
+      <h4>▲ What changed in v2</h4>
+      <ul>
+        <li>News ingestion runs in <b>n8n</b>, not the Python worker</li>
+        <li>New <code>/analyze/news-summary</code> endpoint — AI tags impact, <b>respects the toggle</b></li>
+        <li>n8n gets its <b>own Postgres DB</b>; writes <code>NewsEvent</code> in the trading DB</li>
+        <li>Workflows <b>exported as JSON</b> &amp; version-controlled</li>
+      </ul>
+    </div>
+    <div class="card kept">
+      <h4>● What stayed (the load-bearing parts)</h4>
+      <ul>
+        <li>The single <b>AI + risk gate</b> — every trade still passes it</li>
+        <li><code>NewsEvent</code> schema &amp; the <b>news-blackout</b> check</li>
+        <li>Strategy runner, candle &amp; indicator loops</li>
+        <li>The <b>provider toggle</b> as the one source of truth for AI</li>
+      </ul>
+    </div>
+    <div class="card gone">
+      <h4>✕ What retires</h4>
+      <ul>
+        <li><s>services/data/news_fetcher.py</s></li>
+        <li><s>forexfactory + alpha_vantage worker loops</s></li>
+        <li>Removed <b>only after</b> n8n is verified writing rows</li>
+        <li>Worker → back to <b>one job</b>: prices → candidates</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><i class="k" style="background:var(--wire)"></i> price / cache flow</span>
+    <span><i class="k" style="background:var(--n8n)"></i> n8n automation</span>
+    <span><i class="k" style="background:var(--ai)"></i> AI inference</span>
+    <span><i class="k" style="background:var(--tape)"></i> the gate</span>
+    <span><i class="k" style="background:var(--buy)"></i> persisted state</span>
+  </div>
+
+  <footer>
+    Build plan: docs/plans/06-n8n-migration-buildplan.md · Research: docs/plans/05-news-ingestion-n8n.md · generated 2026-06-23
+  </footer>
+</div>
