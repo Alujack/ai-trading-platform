@@ -11,6 +11,7 @@ from .providers import analyze, available, get_active, set_active
 from .prompts import (
     JOURNAL_REVIEW_SYSTEM,
     MARKET_CONTEXT_SYSTEM,
+    NEWS_SUMMARY_SYSTEM,
     VALIDATE_SIGNAL_SYSTEM,
 )
 from .schemas import (
@@ -18,6 +19,8 @@ from .schemas import (
     JournalReviewResponse,
     MarketContextRequest,
     MarketContextResponse,
+    NewsSummaryRequest,
+    NewsSummaryResponse,
     ValidateSignalRequest,
     ValidateSignalResponse,
     serialize_for_prompt,
@@ -94,6 +97,20 @@ def journal_review(body: JournalReviewRequest) -> JournalReviewResponse:
         system_prompt=JOURNAL_REVIEW_SYSTEM,
         user_payload=serialize_for_prompt(body),
         response_model=JournalReviewResponse,
+    )
+
+
+@analyze_router.post("/news-summary", response_model=NewsSummaryResponse)
+def news_summary(body: NewsSummaryRequest) -> NewsSummaryResponse:
+    """Summarize a batch of headlines and classify impact + affected currency.
+
+    Called by the n8n breaking-news workflow. Routes through analyze(), so it
+    honors the active Mock/Claude/Gemini provider set via /provider.
+    """
+    return analyze(
+        system_prompt=NEWS_SUMMARY_SYSTEM,
+        user_payload=serialize_for_prompt(body),
+        response_model=NewsSummaryResponse,
     )
 
 

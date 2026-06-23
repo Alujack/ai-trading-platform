@@ -69,6 +69,13 @@ class MockProvider:
                 "weaknesses": ["Exits a touch early on winners"],
                 "suggestions": ["Let winners run to the planned target before scaling out"],
             }
+        elif model == "NewsSummaryResponse":
+            data = {
+                "summary": MOCK_TAG + "Headlines summarized without a live model.",
+                "impact": "LOW",
+                "currency": "USD",
+                "rationale": "Mock response — impact not assessed by a real model.",
+            }
         else:  # pragma: no cover - defensive
             raise HTTPException(status_code=500, detail=f"Mock has no shape for {model}")
         return response_model.model_validate(data)

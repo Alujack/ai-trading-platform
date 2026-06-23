@@ -107,6 +107,21 @@ class JournalReviewRequest(BaseModel):
     trades: list[JournalTrade] = Field(..., min_length=1, max_length=100)
 
 
+class Headline(BaseModel):
+    """One published news item supplied to /analyze/news-summary."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    title: str
+    source: str | None = None
+    published_at: str | None = Field(default=None, alias="publishedAt")
+    body: str | None = None
+
+
+class NewsSummaryRequest(BaseModel):
+    headlines: list[Headline] = Field(..., min_length=1, max_length=25)
+
+
 # ---- Response bodies ----------------------------------------------------------
 
 
@@ -144,6 +159,21 @@ class JournalReviewResponse(BaseModel):
     strengths: list[str]
     weaknesses: list[str]
     suggestions: list[str]
+
+
+class NewsSummaryResponse(BaseModel):
+    """Output schema for /analyze/news-summary.
+
+    `impact` and `currency` are shaped to drop straight into NewsEvent rows;
+    the risk engine acts only on HIGH-impact events, so impact fidelity matters.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str
+    impact: Literal["LOW", "MEDIUM", "HIGH"]
+    currency: str
+    rationale: str
 
 
 # ---- Prompt-input serialization -----------------------------------------------
