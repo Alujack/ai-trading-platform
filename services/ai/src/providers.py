@@ -1,0 +1,281 @@
+"""Pluggable AI providers with a runtime-switchable active selection.
+
+Three providers:
+  * mock      — always available; canned, self-labeled output (no key needed).
+  * anthropic — Claude, available when ANTHROPIC_API_KEY is set.
+  * gemini    — Google Gemini, available when GEMINI_API_KEY is set.
+
+The active provider is process-global and can be flipped at runtime via
+`set_active()` (wired to POST /provider). `analyze()` dispatches to it.
+"""
+from __future__ import annotations
+
+import json
+import logging
+from typing import Any, Protocol, TypeVar
+
+from fastapi import HTTPException, status
+from pydantic import BaseModel, ValidationError
+
+from .settings import Settings, get_settings
+
+logger = logging.getLogger(__name__)
+
+R = TypeVar("R", bound=BaseModel)
+
+MOCK_TAG = "[MOCK AI — switch the provider toggle to Claude or Gemini for real analysis] "
+
+
+class Provider(Protocol):
+    name: str
+
+    def analyze(
+        self, *, system_prompt: str, user_payload: dict[str, Any], response_model: type[R]
+    ) -> R: ...
+
+
+# --------------------------------------------------------------------------- #
+# Mock                                                                        #
+# --------------------------------------------------------------------------- #
+class MockProvider:
+    name = "mock"
+
+    def analyze(self, *, system_prompt, user_payload, response_model):  # type: ignore[no-untyped-def]
+        model = response_model.__name__
+        if model == "MarketContextResponse":
+            data: dict[str, Any] = {
+                "bias": "Neutral",
+                "summary": MOCK_TAG
+                + "Price is consolidating near the EMA stack with no decisive trend; "
+                "RSI is mid-range and ATR is average. Wait for a break of the noted levels.",
+                "keyLevels": [
+                    "Prior session high — first resistance",
+                    "EMA50 confluence — pivot",
+                    "Prior swing low — support",
+                ],
+                "risks": ["High-impact calendar event this week", "Thin off-session liquidity"],
+            }
+        elif model == "ValidateSignalResponse":
+            data = {
+                "score": 78,
+                "approved": True,
+                "reasoning": MOCK_TAG + "Setup aligns with the EMA trend and RR is acceptable.",
+                "concerns": ["Mock response — not a real model assessment"],
+            }
+        elif model == "JournalReviewResponse":
+            data = {
+                "patterns": [MOCK_TAG + "Most losses cluster in low-volatility chop."],
+                "strengths": ["Consistent position sizing"],
+                "weaknesses": ["Exits a touch early on winners"],
+                "suggestions": ["Let winners run to the planned target before scaling out"],
+            }
+        else:  # pragma: no cover - defensive
+            raise HTTPException(status_code=500, detail=f"Mock has no shape for {model}")
+        return response_model.model_validate(data)
+
+
+# --------------------------------------------------------------------------- #
+# Anthropic (Claude)                                                          #
+# --------------------------------------------------------------------------- #
+class AnthropicProvider:
+    name = "anthropic"
+
+    def __init__(self, settings: Settings) -> None:
+        import anthropic
+
+        self._anthropic = anthropic
+        self._client = anthropic.Anthropic(
+            api_key=settings.anthropic_api_key, timeout=settings.request_timeout_s
+        )
+        self._model = settings.anthropic_model
+        self._max_tokens = settings.max_output_tokens
+
+    def analyze(self, *, system_prompt, user_payload, response_model):  # type: ignore[no-untyped-def]
+        anthropic = self._anthropic
+        schema = response_model.model_json_schema()
+        try:
+            message = self._client.messages.create(
+                model=self._model,
+                max_tokens=self._max_tokens,
+                system=[
+                    {"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}
+                ],
+                messages=[{"role": "user", "content": json.dumps(user_payload, separators=(",", ":"))}],
+                output_config={"format": {"type": "json_schema", "schema": schema}},
+            )
+        except anthropic.AuthenticationError as exc:
+            logger.error("Anthropic auth failed: %s", exc)
+            raise HTTPException(status_code=500, detail="Claude authentication failed.") from exc
+        except anthropic.RateLimitError as exc:
+            raise HTTPException(status_code=429, detail="Claude rate limit; retry shortly.") from exc
+        except anthropic.APIError as exc:
+            logger.error("Anthropic API error: %s", exc)
+            raise HTTPException(status_code=502, detail="Claude upstream error.") from exc
+
+        if getattr(message, "stop_reason", None) == "refusal":
+            raise HTTPException(status_code=422, detail="Claude declined to respond.")
+        raw = "".join(
+            b.text for b in message.content if getattr(b, "type", None) == "text"
+        ).strip()
+        return _validate(raw, response_model, "Claude")
+
+
+# --------------------------------------------------------------------------- #
+# Gemini                                                                      #
+# --------------------------------------------------------------------------- #
+# Gemini's response_schema accepts only this OpenAPI subset; Pydantic's JSON
+# schema carries extras (additionalProperties, title, minimum/…) that it rejects.
+# We strip to the structural keys and let Pydantic re-validate the output.
+_GEMINI_SCHEMA_KEYS = {"type", "properties", "required", "items", "enum", "nullable", "description"}
+
+
+def _to_gemini_schema(node: Any) -> Any:
+    if isinstance(node, dict):
+        out: dict[str, Any] = {}
+        for key, value in node.items():
+            if key not in _GEMINI_SCHEMA_KEYS:
+                continue
+            if key == "properties":
+                out[key] = {k: _to_gemini_schema(v) for k, v in value.items()}
+            elif key == "items":
+                out[key] = _to_gemini_schema(value)
+            else:
+                out[key] = value
+        return out
+    return node
+
+
+class GeminiProvider:
+    name = "gemini"
+
+    def __init__(self, settings: Settings) -> None:
+        from google import genai
+
+        self._genai = genai
+        self._client = genai.Client(api_key=settings.gemini_api_key)
+        self._model = settings.gemini_model
+        self._max_tokens = settings.max_output_tokens
+
+    def analyze(self, *, system_prompt, user_payload, response_model):  # type: ignore[no-untyped-def]
+        from google.genai import errors as genai_errors
+        from google.genai import types
+
+        schema = _to_gemini_schema(response_model.model_json_schema())
+        try:
+            resp = self._client.models.generate_content(
+                model=self._model,
+                contents=json.dumps(user_payload, separators=(",", ":")),
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    response_mime_type="application/json",
+                    response_schema=schema,
+                    max_output_tokens=self._max_tokens,
+                    temperature=0.2,
+                ),
+            )
+        except genai_errors.ClientError as exc:
+            code = getattr(exc, "code", None)
+            if code == 429:
+                raise HTTPException(status_code=429, detail="Gemini rate limit; retry shortly.") from exc
+            if code in (401, 403):
+                raise HTTPException(status_code=500, detail="Gemini authentication failed.") from exc
+            logger.error("Gemini client error %s: %s", code, exc)
+            raise HTTPException(status_code=502, detail=f"Gemini rejected the request: {exc}") from exc
+        except genai_errors.ServerError as exc:
+            logger.error("Gemini server error: %s", exc)
+            raise HTTPException(status_code=502, detail="Gemini upstream error.") from exc
+        except Exception as exc:  # noqa: BLE001 — e.g. schema conversion issues
+            logger.error("Gemini call failed: %s", exc)
+            raise HTTPException(status_code=502, detail=f"Gemini call failed: {exc}") from exc
+
+        raw = (resp.text or "").strip()
+        return _validate(raw, response_model, "Gemini")
+
+
+def _validate(raw: str, response_model: type[R], label: str) -> R:
+    if not raw:
+        raise HTTPException(status_code=502, detail=f"{label} returned an empty response.")
+    try:
+        return response_model.model_validate_json(raw)
+    except ValidationError as exc:
+        logger.error("%s output failed schema validation. Raw: %s", label, raw[:500])
+        raise HTTPException(
+            status_code=502, detail=f"{label} output did not match schema: {exc.errors()[:3]}"
+        ) from exc
+
+
+# --------------------------------------------------------------------------- #
+# Registry + runtime state                                                    #
+# --------------------------------------------------------------------------- #
+_BUILDERS = {
+    "mock": lambda _s: MockProvider(),
+    "anthropic": AnthropicProvider,
+    "gemini": GeminiProvider,
+}
+
+_active: str | None = None
+_cache: dict[str, Provider] = {}
+
+
+def available(settings: Settings | None = None) -> list[str]:
+    cfg = settings or get_settings()
+    out = ["mock"]
+    if cfg.anthropic_api_key:
+        out.append("anthropic")
+    if cfg.gemini_api_key:
+        out.append("gemini")
+    return out
+
+
+def _default(settings: Settings) -> str:
+    avail = available(settings)
+    if settings.default_provider in avail:
+        return settings.default_provider
+    # "auto": prefer a configured real provider over mock.
+    for name in ("gemini", "anthropic"):
+        if name in avail:
+            return name
+    return "mock"
+
+
+def get_active(settings: Settings | None = None) -> str:
+    global _active
+    cfg = settings or get_settings()
+    if _active is None:
+        _active = _default(cfg)
+    return _active
+
+
+def set_active(name: str, settings: Settings | None = None) -> str:
+    global _active
+    cfg = settings or get_settings()
+    if name not in available(cfg):
+        raise ValueError(name)
+    _active = name
+    logger.info("active provider set to %s", name)
+    return _active
+
+
+def _get_provider(name: str, settings: Settings) -> Provider:
+    if name not in _cache:
+        _cache[name] = _BUILDERS[name](settings)
+    return _cache[name]
+
+
+def analyze(
+    *,
+    system_prompt: str,
+    user_payload: dict[str, Any],
+    response_model: type[R],
+    settings: Settings | None = None,
+) -> R:
+    cfg = settings or get_settings()
+    name = get_active(cfg)
+    try:
+        provider = _get_provider(name, cfg)
+    except Exception as exc:  # noqa: BLE001 — surface construction failures as 502
+        logger.error("failed to build provider %s: %s", name, exc)
+        raise HTTPException(status_code=502, detail=f"Provider '{name}' unavailable: {exc}") from exc
+    return provider.analyze(
+        system_prompt=system_prompt, user_payload=user_payload, response_model=response_model
+    )

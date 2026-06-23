@@ -4,9 +4,10 @@ from __future__ import annotations
 import logging
 
 from dotenv import load_dotenv
-from fastapi import APIRouter, FastAPI
+from fastapi import APIRouter, FastAPI, HTTPException
+from pydantic import BaseModel
 
-from .llm import analyze
+from .providers import analyze, available, get_active, set_active
 from .prompts import (
     JOURNAL_REVIEW_SYSTEM,
     MARKET_CONTEXT_SYSTEM,
@@ -21,6 +22,7 @@ from .schemas import (
     ValidateSignalResponse,
     serialize_for_prompt,
 )
+from .settings import get_settings
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -33,6 +35,36 @@ analyze_router = APIRouter(prefix="/analyze", tags=["analyze"])
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+class ProviderState(BaseModel):
+    active: str
+    available: list[str]
+
+
+class SetProviderBody(BaseModel):
+    provider: str
+
+
+@app.get("/provider", response_model=ProviderState)
+def provider_get() -> ProviderState:
+    """Current AI provider + the ones selectable given configured keys."""
+    cfg = get_settings()
+    return ProviderState(active=get_active(cfg), available=available(cfg))
+
+
+@app.post("/provider", response_model=ProviderState)
+def provider_set(body: SetProviderBody) -> ProviderState:
+    """Switch the active provider at runtime (mock / anthropic / gemini)."""
+    cfg = get_settings()
+    try:
+        set_active(body.provider, cfg)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Provider '{body.provider}' is not available. Choose one of {available(cfg)}.",
+        ) from exc
+    return ProviderState(active=get_active(cfg), available=available(cfg))
 
 
 @analyze_router.post("/market-context", response_model=MarketContextResponse)
