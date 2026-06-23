@@ -47,3 +47,24 @@ export interface SignalsResponse {
   data: Signal[];
   pagination: { limit: number; offset: number; total: number };
 }
+
+export interface Performance {
+  totalTrades: number;
+  winRate: number;
+  totalPnL: number;
+  maxDrawdown: number;
+  averageRR: number;
+}
+
+export type MarketBias = "Bullish" | "Bearish" | "Neutral";
+
+export interface MarketContext {
+  symbol: string;
+  timeframe: string;
+  bias: MarketBias;
+  summary: string;
+  keyLevels: string[];
+  risks: string[];
+  generatedAt: string;
+  cached: boolean;
+}

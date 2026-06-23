@@ -2,7 +2,6 @@ import "dotenv/config";
 import { buildApp } from "./app";
 import { prisma } from "./lib/prisma";
 import { redis, connectRedis } from "./lib/redis";
-import { startScheduler, stopScheduler } from "./signals/scheduler";
 import {
   startPaperTradingScheduler,
   startWeeklyReviewScheduler,
@@ -22,9 +21,8 @@ const server = app.listen(port, host, () => {
   console.log(`API listening on http://${host}:${port}`);
 });
 
-if (process.env.ENABLE_SIGNAL_CRON === "true") {
-  startScheduler();
-}
+// Signal generation moved to the Python strategy runner (services/data);
+// strategies now POST candidates to POST /api/signals/candidate.
 
 if (process.env.ENABLE_PAPER_TRADING === "true") {
   startPaperTradingScheduler();
@@ -36,7 +34,6 @@ if (process.env.ENABLE_WEEKLY_REVIEW === "true") {
 
 async function shutdown(signal: string): Promise<void> {
   console.log(`[shutdown] received ${signal}, closing gracefully`);
-  stopScheduler();
   stopExecutionSchedulers();
   server.close(() => console.log("[shutdown] http server closed"));
   try {
