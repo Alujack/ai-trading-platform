@@ -4,14 +4,29 @@ import { ser } from "../lib/decimal";
 import { NotFoundError } from "../errors/httpError";
 import { asyncHandler } from "../middleware/asyncHandler";
 import { validate } from "../middleware/validate";
+import { gateCandidate, type SignalCandidate } from "../signals/gate";
 import {
+  signalCandidateSchema,
   signalIdParamSchema,
   signalsQuerySchema,
+  type SignalCandidateBody,
   type SignalIdParam,
   type SignalsQuery,
 } from "../schemas/signals.schema";
 
 const router = Router();
+
+// Single AI + risk gate for every strategy. A strategy (Python or TS) POSTs a
+// candidate here; only AI-approved, risk-approved candidates become PENDING.
+router.post(
+  "/signals/candidate",
+  validate(signalCandidateSchema, "body"),
+  asyncHandler(async (req, res) => {
+    const candidate = req.body as unknown as SignalCandidateBody;
+    const result = await gateCandidate(candidate satisfies SignalCandidate);
+    res.status(result.status === "generated" ? 201 : 200).json(result);
+  }),
+);
 
 router.get(
   "/signals",

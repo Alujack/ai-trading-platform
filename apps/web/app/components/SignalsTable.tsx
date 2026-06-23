@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
 import type { Signal, SignalStatus, SignalsResponse } from "@/lib/types";
@@ -23,7 +24,33 @@ function confidenceTone(score: number): string {
   return "text-rose-300";
 }
 
+function priceDigits(symbol: string): number {
+  if (symbol === "EURUSD") return 4;
+  return 2;
+}
+
+function fmtPrice(value: string, digits: number): string {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return value;
+  return n.toLocaleString(undefined, {
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  });
+}
+
+function riskReward(signal: Signal): string {
+  const entry = Number(signal.entryPrice);
+  const sl = Number(signal.stopLoss);
+  const tp = Number(signal.takeProfit);
+  if (!Number.isFinite(entry) || !Number.isFinite(sl) || !Number.isFinite(tp)) return "—";
+  const risk = Math.abs(entry - sl);
+  const reward = Math.abs(tp - entry);
+  if (risk === 0) return "—";
+  return `1:${(reward / risk).toFixed(2)}`;
+}
+
 export function SignalsTable() {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const { data, error, isLoading } = useSWR<SignalsResponse>(
     "/api/signals?limit=5",
     fetcher,
@@ -38,7 +65,7 @@ export function SignalsTable() {
         <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-400">
           Recent Signals
         </h2>
-        <span className="text-xs text-neutral-500">last 5</span>
+        <span className="text-xs text-neutral-500">last 5 · click a row for details</span>
       </div>
 
       {isLoading && (
@@ -74,44 +101,122 @@ export function SignalsTable() {
               </tr>
             </thead>
             <tbody>
-              {signals.map((s) => (
-                <tr
-                  key={s.id}
-                  className="border-b border-neutral-800/60 last:border-b-0 hover:bg-neutral-800/30"
-                >
-                  <td className="px-5 py-3 font-medium text-neutral-100">{s.symbol}</td>
-                  <td className="px-5 py-3">
-                    <span
-                      className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium ${
-                        s.direction === "LONG"
-                          ? "bg-emerald-500/10 text-emerald-300"
-                          : "bg-rose-500/10 text-rose-300"
-                      }`}
-                    >
-                      {s.direction === "LONG" ? "▲" : "▼"} {s.direction}
-                    </span>
-                  </td>
-                  <td
-                    className={`px-5 py-3 text-right font-mono tabular-nums ${confidenceTone(s.confidenceScore)}`}
-                  >
-                    {s.confidenceScore}
-                  </td>
-                  <td className="px-5 py-3">
-                    <span
-                      className={`inline-block rounded border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${STATUS_TONE[s.status]}`}
-                    >
-                      {s.status}
-                    </span>
-                  </td>
-                  <td className="px-5 py-3 text-right font-mono text-xs text-neutral-400 tabular-nums">
-                    {fmtTimestamp(s.createdAt)}
-                  </td>
-                </tr>
-              ))}
+              {signals.map((s) => {
+                const isOpen = expandedId === s.id;
+                const digits = priceDigits(s.symbol);
+                return (
+                  <FragmentRow
+                    key={s.id}
+                    signal={s}
+                    isOpen={isOpen}
+                    digits={digits}
+                    onToggle={() => setExpandedId(isOpen ? null : s.id)}
+                  />
+                );
+              })}
             </tbody>
           </table>
         </div>
       )}
     </section>
+  );
+}
+
+function FragmentRow({
+  signal,
+  isOpen,
+  digits,
+  onToggle,
+}: {
+  signal: Signal;
+  isOpen: boolean;
+  digits: number;
+  onToggle: () => void;
+}) {
+  return (
+    <>
+      <tr
+        onClick={onToggle}
+        className={`cursor-pointer border-b border-neutral-800/60 last:border-b-0 hover:bg-neutral-800/30 ${
+          isOpen ? "bg-neutral-800/30" : ""
+        }`}
+      >
+        <td className="px-5 py-3 font-medium text-neutral-100">
+          <span className="mr-2 inline-block w-3 text-neutral-500">{isOpen ? "▾" : "▸"}</span>
+          {signal.symbol}
+        </td>
+        <td className="px-5 py-3">
+          <span
+            className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium ${
+              signal.direction === "LONG"
+                ? "bg-emerald-500/10 text-emerald-300"
+                : "bg-rose-500/10 text-rose-300"
+            }`}
+          >
+            {signal.direction === "LONG" ? "▲" : "▼"} {signal.direction}
+          </span>
+        </td>
+        <td
+          className={`px-5 py-3 text-right font-mono tabular-nums ${confidenceTone(signal.confidenceScore)}`}
+        >
+          {signal.confidenceScore}
+        </td>
+        <td className="px-5 py-3">
+          <span
+            className={`inline-block rounded border px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide ${STATUS_TONE[signal.status]}`}
+          >
+            {signal.status}
+          </span>
+        </td>
+        <td className="px-5 py-3 text-right font-mono text-xs text-neutral-400 tabular-nums">
+          {fmtTimestamp(signal.createdAt)}
+        </td>
+      </tr>
+      {isOpen && (
+        <tr className="border-b border-neutral-800/60 bg-neutral-950/40">
+          <td colSpan={5} className="px-5 py-4">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <Detail label="Entry" value={fmtPrice(signal.entryPrice, digits)} />
+              <Detail
+                label="Stop loss"
+                value={fmtPrice(signal.stopLoss, digits)}
+                tone="text-rose-300"
+              />
+              <Detail
+                label="Take profit"
+                value={fmtPrice(signal.takeProfit, digits)}
+                tone="text-emerald-300"
+              />
+              <Detail label="Risk:Reward" value={riskReward(signal)} />
+            </div>
+            <div className="mt-4 rounded-md border border-neutral-800/60 bg-neutral-950/60 p-3">
+              <div className="text-[10px] uppercase tracking-wide text-neutral-500">
+                AI reasoning
+              </div>
+              <p className="mt-1 font-mono text-xs leading-relaxed text-neutral-300">
+                {signal.aiReasoning || "—"}
+              </p>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+function Detail({
+  label,
+  value,
+  tone = "text-neutral-100",
+}: {
+  label: string;
+  value: string;
+  tone?: string;
+}) {
+  return (
+    <div className="rounded-md border border-neutral-800/60 bg-neutral-950/40 px-3 py-2">
+      <div className="text-[10px] uppercase tracking-wide text-neutral-500">{label}</div>
+      <div className={`mt-1 font-mono text-sm tabular-nums ${tone}`}>{value}</div>
+    </div>
   );
 }

@@ -13,5 +13,23 @@ export const signalIdParamSchema = z.object({
   id: z.string().min(1),
 });
 
+export const TIMEFRAMES = ["1min", "5min", "15min", "60min", "daily"] as const;
+
+export const signalCandidateSchema = z.object({
+  strategyName: z.string().min(1).max(50),
+  symbol: z.string().min(1).max(20),
+  timeframe: z.enum(TIMEFRAMES),
+  direction: z.enum(["LONG", "SHORT"]),
+  entryPrice: z.number().finite().positive(),
+  stopLoss: z.number().finite().positive(),
+  takeProfit: z.number().finite().positive(),
+  confidence: z.number().min(0).max(100),
+  reasoning: z.string().min(1).max(4000),
+  clientId: z.string().min(1).max(64).optional(),
+  cooldownMs: z.number().int().nonnegative().max(604_800_000).optional(),
+  aiMinScore: z.number().min(0).max(100).optional(),
+});
+
 export type SignalsQuery = z.infer<typeof signalsQuerySchema>;
 export type SignalIdParam = z.infer<typeof signalIdParamSchema>;
+export type SignalCandidateBody = z.infer<typeof signalCandidateSchema>;

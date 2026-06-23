@@ -1,5 +1,10 @@
 """First strategy detector: RSI(14) + EMA200 trend filter.
 
+DEPRECATED (Phase 4): this logic now lives in ``strategies/meanrev_rsi.py`` and
+runs through the unified AI + risk gate via ``strategy_runner``. This module
+inserts directly into the Signal table and therefore BYPASSES AI validation and
+the risk engine — kept only as an offline/backfill tool. Do not schedule it.
+
 Fires LONG when RSI<30 and close>EMA200 (oversold pullback in an uptrend).
 Fires SHORT when RSI>70 and close<EMA200 (overbought rally in a downtrend).
 SL/TP derived from ATR(14): 1.5*ATR stop, 3.0*ATR target (1:2 RR).

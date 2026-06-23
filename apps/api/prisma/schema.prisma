@@ -74,8 +74,18 @@ model NewsEvent {
   aiSummary   String?
   createdAt   DateTime @default(now())
 
+  @@unique([title, scheduledAt])
   @@index([scheduledAt])
   @@index([currency])
+}
+
+model Strategy {
+  id        String   @id @default(cuid())
+  name      String   @unique // "trend_ema", "meanrev_rsi", "breakout_donchian", "carry"
+  enabled   Boolean  @default(false)
+  regimes   String // CSV of allowed regimes, e.g. "TRENDING" / "RANGING,VOLATILE"
+  params    Json // strategy-specific parameters (thresholds, ATR multipliers, …)
+  createdAt DateTime @default(now())
 }
 
 model Signal {
@@ -88,11 +98,13 @@ model Signal {
   takeProfit      Decimal      @db.Decimal(18, 8)
   confidenceScore Int
   aiReasoning     String
+  strategyName    String?
   status          SignalStatus @default(PENDING)
   createdAt       DateTime     @default(now())
   trades          Trade[]
 
   @@index([symbol, status])
+  @@index([strategyName])
   @@index([createdAt])
 }
 

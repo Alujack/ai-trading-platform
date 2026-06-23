@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 
 import httpx
@@ -17,6 +18,8 @@ from dotenv import load_dotenv
 from db import close_pool, init_pool, upsert_candles
 from fetcher import SYMBOL_MAP, fetch_candles
 from indicator_calculator import calculate_indicators
+from news_fetcher import ingest_alpha_vantage_news, ingest_forexfactory
+from strategy_runner import run_once as run_strategy_scan
 
 SYMBOLS = list(SYMBOL_MAP.keys())  # XAUUSD, EURUSD, BTCUSD
 
@@ -31,6 +34,14 @@ TIMEFRAME_PERIOD_SECONDS: dict[str, int] = {
     "60min": 60 * 60,
     "daily": 60 * 60,
 }
+
+# News ingestion cadence. ForexFactory's weekly calendar refreshes daily (with
+# intraday corrections); Alpha Vantage headlines turn over much faster.
+FOREXFACTORY_PERIOD_SECONDS = 24 * 60 * 60
+AV_NEWS_PERIOD_SECONDS = 4 * 60 * 60
+
+# Strategy runner cadence (matches the retired TS signal cron's 15-min tick).
+STRATEGY_PERIOD_SECONDS = 15 * 60
 
 log = logging.getLogger("data.worker")
 
@@ -81,6 +92,23 @@ async def _scheduled_loop(timeframe: str, client: httpx.AsyncClient, period_seco
         await asyncio.sleep(max(0.0, period_seconds - elapsed))
 
 
+async def _periodic_loop(
+    name: str,
+    task: "Callable[[httpx.AsyncClient], Awaitable[int]]",
+    client: httpx.AsyncClient,
+    period_seconds: int,
+) -> None:
+    log.info("loop_start name=%s period_s=%d", name, period_seconds)
+    while True:
+        started = asyncio.get_event_loop().time()
+        try:
+            await task(client)
+        except Exception as exc:  # noqa: BLE001 — log and continue, do not kill the loop
+            log.error("loop_task_failed name=%s err=%s", name, exc)
+        elapsed = asyncio.get_event_loop().time() - started
+        await asyncio.sleep(max(0.0, period_seconds - elapsed))
+
+
 async def main() -> None:
     load_dotenv()
     _configure_logging()
@@ -98,7 +126,10 @@ async def main() -> None:
                 *(
                     _scheduled_loop(tf, client, period)
                     for tf, period in TIMEFRAME_PERIOD_SECONDS.items()
-                )
+                ),
+                _periodic_loop("forexfactory", ingest_forexfactory, client, FOREXFACTORY_PERIOD_SECONDS),
+                _periodic_loop("alpha_vantage", ingest_alpha_vantage_news, client, AV_NEWS_PERIOD_SECONDS),
+                _periodic_loop("strategy_runner", run_strategy_scan, client, STRATEGY_PERIOD_SECONDS),
             )
         finally:
             await close_pool()
