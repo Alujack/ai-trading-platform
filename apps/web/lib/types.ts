@@ -39,6 +39,7 @@ export interface Signal {
   takeProfit: string;
   confidenceScore: number;
   aiReasoning: string;
+  strategyName: string | null;
   status: SignalStatus;
   createdAt: string;
 }
@@ -54,6 +55,14 @@ export interface Performance {
   totalPnL: number;
   maxDrawdown: number;
   averageRR: number;
+}
+
+export const AI_PROVIDERS = ["mock", "anthropic", "gemini"] as const;
+export type AiProvider = (typeof AI_PROVIDERS)[number];
+
+export interface AiProviderState {
+  active: AiProvider;
+  available: AiProvider[];
 }
 
 export type MarketBias = "Bullish" | "Bearish" | "Neutral";

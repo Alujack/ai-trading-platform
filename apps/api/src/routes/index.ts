@@ -1,4 +1,5 @@
 import { Router } from "express";
+import aiProviderRouter from "./aiProvider.routes";
 import candlesRouter from "./candles.routes";
 import healthRouter from "./health.routes";
 import marketContextRouter from "./marketContext.routes";
@@ -14,5 +15,6 @@ router.use(symbolsRouter);
 router.use(signalsRouter);
 router.use(performanceRouter);
 router.use(marketContextRouter);
+router.use(aiProviderRouter);
 
 export default router;

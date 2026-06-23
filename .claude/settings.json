@@ -22,7 +22,14 @@
       "Bash(lsof -nP -iTCP:3000,4000 -sTCP:LISTEN)",
       "Bash(curl -s -o /dev/null -w \"web /        HTTP %{http_code}  %{time_total}s\\\\n\" http://localhost:3000/)",
       "Bash(curl -s -o /dev/null -w \"api /health   HTTP %{http_code}  %{time_total}s\\\\n\" http://localhost:4000/health)",
-      "Bash(curl -s -o /dev/null -w \"ai  /docs     HTTP %{http_code}  %{time_total}s\\\\n\" http://localhost:8000/docs)"
+      "Bash(curl -s -o /dev/null -w \"ai  /docs     HTTP %{http_code}  %{time_total}s\\\\n\" http://localhost:8000/docs)",
+      "Bash(curl -s \"http://localhost:4000/api/signals?limit=3\")",
+      "Bash(curl -s \"http://localhost:4000/api/candles?symbol=XAUUSD&timeframe=60min&limit=1\")",
+      "Bash(xargs -I{} sh -c 'kill {} && echo \"killed {}\"')",
+      "Bash(node -e \"require\\('dotenv/config'\\); console.log\\('ENABLE_PAPER_TRADING=', process.env.ENABLE_PAPER_TRADING\\)\")",
+      "Bash(npx tsx *)",
+      "Bash(curl -s http://localhost:4000/api/performance)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:3000/)"
     ]
   }
 }
