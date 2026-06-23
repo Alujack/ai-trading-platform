@@ -1,42 +1,37 @@
 "use client";
 
-import { useState } from "react";
-import { IndicatorSidebar } from "./components/IndicatorSidebar";
-import { MarketContextCard } from "./components/MarketContextCard";
-import { Navbar } from "./components/Navbar";
-import { PerformanceCard } from "./components/PerformanceCard";
-import { SignalChart } from "./components/SignalChart";
-import { SignalsTable } from "./components/SignalsTable";
-import { TradeSetupPanel } from "./components/TradeSetupPanel";
-import type { Symbol, Timeframe } from "@/lib/types";
+import { ActiveSetupPanel } from "./components/dash/ActiveSetupPanel";
+import { AiReadPanel } from "./components/dash/AiReadPanel";
+import { ChartPanel } from "./components/dash/ChartPanel";
+import { useDash } from "./components/dash/DashContext";
+import { KpiStrip } from "./components/dash/KpiStrip";
+import { NewsPanel } from "./components/dash/NewsPanel";
+import { PositionsPanel } from "./components/dash/PositionsPanel";
+import { RecentSignalsPanel } from "./components/dash/RecentSignalsPanel";
+import { RiskEnginePanel } from "./components/dash/RiskEnginePanel";
 
-export default function DashboardPage() {
-  const [symbol, setSymbol] = useState<Symbol>("XAUUSD");
-  const [timeframe, setTimeframe] = useState<Timeframe>("60min");
+export default function HomePage() {
+  const { symbol, timeframe, setTimeframe } = useDash();
 
   return (
-    <div className="min-h-screen">
-      <Navbar
-        symbol={symbol}
-        timeframe={timeframe}
-        onSymbolChange={setSymbol}
-        onTimeframeChange={setTimeframe}
-      />
+    <>
+      <KpiStrip />
 
-      <main className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-6">
-        <PerformanceCard />
+      <section style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 372px", gap: 16, alignItems: "start" }}>
+        <ChartPanel symbol={symbol} timeframe={timeframe} onTimeframeChange={setTimeframe} />
+        <ActiveSetupPanel symbol={symbol} />
+      </section>
 
-        <TradeSetupPanel symbol={symbol} />
+      <section style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 16, alignItems: "start" }}>
+        <RiskEnginePanel />
+        <AiReadPanel symbol={symbol} timeframe={timeframe} />
+        <NewsPanel />
+      </section>
 
-        <MarketContextCard symbol={symbol} timeframe={timeframe} />
-
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
-          <SignalChart symbol={symbol} timeframe={timeframe} />
-          <IndicatorSidebar symbol={symbol} timeframe={timeframe} />
-        </div>
-
-        <SignalsTable />
-      </main>
-    </div>
+      <section style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
+        <PositionsPanel />
+        <RecentSignalsPanel />
+      </section>
+    </>
   );
 }

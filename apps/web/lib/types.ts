@@ -60,9 +60,73 @@ export interface Performance {
 export const AI_PROVIDERS = ["mock", "anthropic", "gemini"] as const;
 export type AiProvider = (typeof AI_PROVIDERS)[number];
 
+export interface AiProviderDetail {
+  name: AiProvider;
+  label: string;
+  needsKey: boolean;
+  hasKey: boolean;
+  keyHint: string | null;
+  keySource: "ui" | "env" | null;
+  model: string | null;
+  configured: boolean;
+  active: boolean;
+}
+
 export interface AiProviderState {
   active: AiProvider;
   available: AiProvider[];
+  providers: AiProviderDetail[];
+}
+
+export type Impact = "LOW" | "MEDIUM" | "HIGH";
+
+export interface NewsItem {
+  id: string;
+  title: string;
+  impact: Impact;
+  currency: string;
+  scheduledAt: string;
+  actual: string | null;
+  forecast: string | null;
+  previous: string | null;
+  aiSummary: string | null;
+  upcoming: boolean;
+}
+
+export interface NewsResponse {
+  data: NewsItem[];
+  count: number;
+}
+
+export interface Position {
+  id: string;
+  symbol: string;
+  direction: SignalDirection;
+  size: number;
+  entry: number;
+  mark: number;
+  stopLoss: number;
+  takeProfit: number;
+  pnl: number;
+  openedAt: string;
+}
+
+export interface AccountSummary {
+  baseBalance: number;
+  equity: number;
+  unrealized: number;
+  realizedTotal: number;
+  dayPnL: number;
+  dayPnLPct: number;
+  openRisk: number;
+  openRiskPct: number;
+  openCount: number;
+  maxOpen: number;
+}
+
+export interface PositionsResponse {
+  account: AccountSummary;
+  positions: Position[];
 }
 
 export type MarketBias = "Bullish" | "Bearish" | "Neutral";

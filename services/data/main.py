@@ -40,6 +40,22 @@ TIMEFRAME_PERIOD_SECONDS: dict[str, int] = {
 # Strategy runner cadence (matches the retired TS signal cron's 15-min tick).
 STRATEGY_PERIOD_SECONDS = 15 * 60
 
+# Where to ping the API so it can push realtime updates to the dashboard (SSE).
+_API_BASE = os.environ.get("API_PUBLIC_URL", "http://localhost:4000").rstrip("/")
+RT_NOTIFY_URL = f"{_API_BASE}/api/internal/rt-notify"
+
+
+async def _notify_rt(client: httpx.AsyncClient, type_: str, symbol: str, timeframe: str) -> None:
+    """Best-effort realtime ping; never let it disturb the ingest loop."""
+    try:
+        await client.post(
+            RT_NOTIFY_URL,
+            json={"type": type_, "symbol": symbol, "timeframe": timeframe},
+            timeout=5.0,
+        )
+    except Exception:  # noqa: BLE001 — realtime is a nicety, not load-bearing
+        pass
+
 log = logging.getLogger("data.worker")
 
 
@@ -77,6 +93,7 @@ async def _fetch_and_store(
             log.error(
                 "indicators_failed symbol=%s tf=%s err=%s", symbol, timeframe, exc
             )
+        await _notify_rt(client, "candle", symbol, timeframe)
 
 
 async def _scheduled_loop(timeframe: str, client: httpx.AsyncClient, period_seconds: int) -> None:

@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
+import { publishEvent } from "../lib/realtime";
 import { validateTrade, type Impact, type NewsLite } from "../risk/riskEngine";
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL ?? "http://localhost:8000";
@@ -236,6 +237,7 @@ export async function gateCandidate(candidate: SignalCandidate): Promise<GateRes
         status: "PENDING",
       },
     });
+    void publishEvent({ type: "signal", symbol, timeframe });
     return { status: "generated", signalId: signal.id, score: aiResult.score };
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {

@@ -8,16 +8,18 @@ const router = Router();
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL ?? "http://localhost:8000";
 
-const setProviderSchema = z.object({
-  provider: z.enum(["mock", "anthropic", "gemini"]),
+const providerName = z.string().min(1).max(40);
+
+const setProviderSchema = z.object({ provider: providerName });
+const setKeySchema = z.object({
+  provider: providerName,
+  apiKey: z.string().min(1).max(400),
+  model: z.string().max(120).optional(),
 });
+const providerOnlySchema = z.object({ provider: providerName });
 
-interface ProviderState {
-  active: string;
-  available: string[];
-}
-
-async function aiFetch(path: string, init?: RequestInit): Promise<ProviderState> {
+// Proxy any call to the AI service and pass its JSON (and status) through.
+async function aiFetch<T>(path: string, init?: RequestInit): Promise<{ status: number; body: T }> {
   let res: Response;
   try {
     res = await fetch(`${AI_SERVICE_URL}${path}`, init);
@@ -25,33 +27,73 @@ async function aiFetch(path: string, init?: RequestInit): Promise<ProviderState>
     const msg = err instanceof Error ? err.message : String(err);
     throw new HttpError(503, `AI service unreachable: ${msg}`);
   }
-  if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    throw new HttpError(res.status === 400 ? 400 : 502, detail.slice(0, 200) || `AI service ${res.status}`);
+  const text = await res.text();
+  let body: unknown = {};
+  try {
+    body = text ? JSON.parse(text) : {};
+  } catch {
+    body = { detail: text.slice(0, 200) };
   }
-  return (await res.json()) as ProviderState;
+  if (!res.ok) {
+    const detail =
+      (body as { detail?: string })?.detail ?? `AI service ${res.status}`;
+    throw new HttpError(res.status === 400 ? 400 : 502, detail);
+  }
+  return { status: res.status, body: body as T };
 }
 
-// Current AI provider + which ones are selectable (depends on configured keys).
+const json = (init?: { method?: string; payload?: unknown }): RequestInit => ({
+  method: init?.method ?? "GET",
+  headers: { "content-type": "application/json" },
+  body: init?.payload ? JSON.stringify(init.payload) : undefined,
+});
+
+// Current provider + per-provider config status (depends on configured keys).
 router.get(
   "/ai-provider",
   asyncHandler(async (_req, res) => {
-    res.json(await aiFetch("/provider"));
+    const { body } = await aiFetch("/provider");
+    res.json(body);
   }),
 );
 
-// Switch the active AI provider at runtime.
+// Switch the active provider at runtime.
 router.put(
   "/ai-provider",
   validate(setProviderSchema, "body"),
   asyncHandler(async (req, res) => {
-    res.json(
-      await aiFetch("/provider", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(req.body),
-      }),
-    );
+    const { body } = await aiFetch("/provider", json({ method: "POST", payload: req.body }));
+    res.json(body);
+  }),
+);
+
+// Save an API key (and optional model) for a provider — pasted from the UI.
+router.put(
+  "/ai-provider/key",
+  validate(setKeySchema, "body"),
+  asyncHandler(async (req, res) => {
+    const { body } = await aiFetch("/provider/key", json({ method: "PUT", payload: req.body }));
+    res.json(body);
+  }),
+);
+
+// Remove a UI-set key for a provider.
+router.delete(
+  "/ai-provider/key",
+  validate(providerOnlySchema, "body"),
+  asyncHandler(async (req, res) => {
+    const { body } = await aiFetch("/provider/key", json({ method: "DELETE", payload: req.body }));
+    res.json(body);
+  }),
+);
+
+// Verify a provider's key with one tiny live call.
+router.post(
+  "/ai-provider/test",
+  validate(providerOnlySchema, "body"),
+  asyncHandler(async (req, res) => {
+    const { body } = await aiFetch("/provider/test", json({ method: "POST", payload: req.body }));
+    res.json(body);
   }),
 );
 

@@ -18,6 +18,10 @@ next-env.d.ts
 .env.*.local
 !.env.example
 
+# Runtime AI-key overrides pasted via the UI (never commit)
+.provider_overrides.json
+services/ai/.provider_overrides.json
+
 # Python
 __pycache__/
 *.py[cod]
