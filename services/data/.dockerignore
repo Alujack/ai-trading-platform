@@ -1,0 +1,12 @@
+__pycache__
+**/__pycache__
+*.egg-info
+**/*.egg-info
+.venv
+venv
+env
+bt_out
+wf_out
+tests
+*.md
+.DS_Store

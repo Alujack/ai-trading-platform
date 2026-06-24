@@ -1,0 +1,14 @@
+strategy,symbol,timeframe,fold,is_len,oos_len,oos_trades,oos_win_rate,oos_profit_factor,oos_expectancy_r,oos_total_r,params
+ict_confluence,XAUUSD,daily,0,1000,300,2,0.0000,0.0,-1.0105,-2.0211,minScore=0.5;atrBuffer=0.5
+ict_confluence,XAUUSD,daily,1,1000,300,8,0.3750,0.9221554838740926,-0.0402,-0.3214,minScore=0.4;atrBuffer=0.3
+ict_confluence,XAUUSD,daily,2,1000,300,6,0.3333,0.5845218010538381,-0.2771,-1.6626,minScore=0.4;atrBuffer=0.5
+ict_confluence,XAUUSD,daily,3,1000,300,2,0.5000,3.529424370581044,1.3490,2.6980,minScore=0.5;atrBuffer=0.3
+ict_confluence,XAUUSD,daily,4,1000,300,0,0.0000,0.0,0.0000,0.0000,minScore=0.5;atrBuffer=0.3
+ict_confluence,XAUUSD,daily,5,1000,300,2,0.5000,1.6406523316610147,0.3455,0.6911,minScore=0.5;atrBuffer=0.3
+ict_confluence,XAUUSD,daily,6,1000,300,1,1.0000,inf,0.8260,0.8260,minScore=0.5;atrBuffer=0.3
+ict_confluence,XAUUSD,daily,7,1000,300,3,0.3333,1.5353709789297714,0.3848,1.1543,minScore=0.4;atrBuffer=0.3
+ict_confluence,XAUUSD,daily,8,1000,300,0,0.0000,0.0,0.0000,0.0000,minScore=0.5;atrBuffer=0.3
+ict_confluence,XAUUSD,daily,9,1000,300,7,0.1429,0.12454834427059366,-0.7577,-5.3041,minScore=0.4;atrBuffer=0.3
+ict_confluence,XAUUSD,daily,10,1000,300,2,0.5000,1.5231350509581483,0.2711,0.5423,minScore=0.5;atrBuffer=0.3
+ict_confluence,XAUUSD,daily,11,1000,300,1,1.0000,inf,2.7458,2.7458,minScore=0.5;atrBuffer=0.3
+ict_confluence,XAUUSD,daily,12,1000,300,4,0.5000,0.21296910220968662,-0.4001,-1.6004,minScore=0.5;atrBuffer=0.3

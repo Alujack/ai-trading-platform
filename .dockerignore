@@ -1,0 +1,26 @@
+# Build context hygiene for the Node images (Dockerfile.node, context = repo root).
+# Keep host-built artifacts and secrets OUT of the image — deps are installed
+# fresh inside the container (avoids macOS→Linux native-binary mismatches), and
+# env is injected by docker-compose (env_file + environment), not baked in.
+**/node_modules
+**/.next
+**/dist
+**/*.tsbuildinfo
+**/__pycache__
+**/*.egg-info
+**/.venv
+**/venv
+**/env
+.git
+.gitignore
+*.md
+docs
+research
+infra/n8n/.n8n
+services/data/bt_out
+services/data/wf_out
+.env
+.env.*
+!.env.example
+.DS_Store
+**/.DS_Store

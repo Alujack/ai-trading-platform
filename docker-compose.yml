@@ -34,6 +34,118 @@ services:
       timeout: 5s
       retries: 5
 
+  # ---- Application services -------------------------------------------------
+  # All four run IN the compose network and talk to each other by service name
+  # on the services' INTERNAL ports (postgres:5432, redis:6379, ai:8000,
+  # api:4000) — independent of the host-shifted ports in .env. Connection URLs
+  # are overridden here; everything else (API keys, secrets) comes from .env via
+  # env_file. `environment` always wins over `env_file`.
+
+  # AI analysis service (FastAPI). Validates signals + summarizes news.
+  ai:
+    build:
+      context: ./services/ai
+    container_name: trading-ai
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - AI_SERVICE_HOST=0.0.0.0
+      - AI_SERVICE_PORT=8000
+    ports:
+      - "${AI_SERVICE_PORT:-8000}:8000"
+    volumes:
+      - ./services/ai/src:/app/src
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Main backend (Express + Prisma). The single signal gate + risk engine.
+  # Runs `prisma migrate deploy` against Postgres before serving so the schema
+  # is always current. Published on the host at :4000 because the BROWSER calls
+  # it directly (NEXT_PUBLIC_API_URL).
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.node
+    image: ai-trading-node:dev
+    container_name: trading-api
+    restart: unless-stopped
+    command: >-
+      sh -c "npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma &&
+             npm run dev --workspace=@ai-trading/api"
+    env_file: .env
+    environment:
+      - NODE_ENV=development
+      - API_HOST=0.0.0.0
+      - API_PORT=4000
+      - API_PUBLIC_URL=http://localhost:4000
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-trading}
+      - REDIS_URL=redis://redis:6379
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - AI_SERVICE_URL=http://ai:8000
+    ports:
+      - "${API_PORT:-4000}:4000"
+    volumes:
+      - ./apps/api/src:/app/apps/api/src
+      - ./apps/api/prisma:/app/apps/api/prisma
+      - ./apps/api/scripts:/app/apps/api/scripts
+      - ./packages/shared/src:/app/packages/shared/src
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      ai:
+        condition: service_started
+
+  # Next.js dashboard. Internal port 3000, published on the host at :3100.
+  # NEXT_PUBLIC_API_URL stays http://localhost:4000 — it is baked into the
+  # client bundle and used by the user's BROWSER, not from inside the network.
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.node
+    image: ai-trading-node:dev
+    container_name: trading-web
+    restart: unless-stopped
+    command: npm run dev --workspace=@ai-trading/web
+    env_file: .env
+    environment:
+      - NODE_ENV=development
+      - WEB_PORT=3000
+      - NEXT_PUBLIC_API_URL=http://localhost:4000
+    ports:
+      - "${WEB_PORT:-3100}:3000"
+    volumes:
+      - ./apps/web/app:/app/apps/web/app
+      - ./apps/web/lib:/app/apps/web/lib
+      - ./packages/shared/src:/app/packages/shared/src
+    depends_on:
+      api:
+        condition: service_started
+
+  # Python worker: candles → indicators → strategy scan → POST candidates to the
+  # API gate. POSTs over the network to http://api:4000.
+  worker:
+    build:
+      context: ./services/data
+    container_name: trading-worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-trading}
+      - REDIS_URL=redis://redis:6379
+      - API_PUBLIC_URL=http://api:4000
+      - AI_SERVICE_URL=http://ai:8000
+    volumes:
+      - ./services/data:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_started
+
   # News-automation layer. Polls economic-calendar + headline feeds on a
   # schedule, normalizes, dedupes, and upserts into the trading DB's NewsEvent
   # table. Keeps brittle news plumbing out of the Python worker.
@@ -61,15 +173,17 @@ services:
       - N8N_HOST=${N8N_HOST:-localhost}
       - N8N_PORT=5678
       - WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://localhost:5678/}
-      # Workflow B reads these. The AI URL uses host.docker.internal because the
-      # AI service runs on the host, not in this compose network.
+      # Workflow B reads these. The AI service now runs in this compose network,
+      # so reach it by service name instead of host.docker.internal.
       - ALPHA_VANTAGE_API_KEY=${ALPHA_VANTAGE_API_KEY:-}
-      - NEWS_SUMMARY_URL=http://host.docker.internal:8000/analyze/news-summary
+      - NEWS_SUMMARY_URL=http://ai:8000/analyze/news-summary
     volumes:
       - n8n-data:/home/node/.n8n
     depends_on:
       postgres:
         condition: service_healthy
+      ai:
+        condition: service_started
 
 volumes:
   postgres-data:
