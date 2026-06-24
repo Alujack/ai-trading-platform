@@ -53,6 +53,14 @@ PARAM_GRIDS: dict[str, dict[str, list]] = {
         "rsiOversold": [25, 30, 35],
         "rsiOverbought": [65, 70, 75],
     },
+    # ICT confluence aggregator: the conviction threshold and stop buffer are the
+    # live knobs. (The in-sample backtest showed a positive edge at minScore≈0.5
+    # that flips negative at 0.65 — exactly the threshold-sensitivity walk-forward
+    # exists to adjudicate.)
+    "ict_confluence": {
+        "minScore": [0.40, 0.50, 0.65],
+        "atrBuffer": [0.3, 0.5],
+    },
 }
 DEFAULT_STRATEGIES = ["trend_ema", "meanrev_rsi"]
 DEFAULT_TIMEFRAMES = ["60min"]

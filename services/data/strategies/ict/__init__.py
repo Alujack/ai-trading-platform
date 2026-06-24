@@ -16,8 +16,9 @@ Detectors shipped in this phase (build plan §3, table rows 1–3):
 """
 from __future__ import annotations
 
+from .confluence import IctConfluence
 from .fvg import IctFvg
 from .order_block import IctOrderBlock
 from .sweep_mss import IctSweepMss
 
-__all__ = ["IctFvg", "IctOrderBlock", "IctSweepMss"]
+__all__ = ["IctConfluence", "IctFvg", "IctOrderBlock", "IctSweepMss"]
