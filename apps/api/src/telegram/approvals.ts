@@ -1,9 +1,14 @@
 import type { Signal } from "@prisma/client";
 import { resolveRiskConfig } from "../config/resolve";
+import { openLiveTrade } from "../execution/liveTrade";
 import { openPaperTrade } from "../execution/paperTrading";
 import { prisma } from "../lib/prisma";
 import { publishEvent } from "../lib/realtime";
 import { calculatePositionSize } from "../risk/riskEngine";
+
+function isLiveBroker(): boolean {
+  return (process.env.BROKER ?? "paper").trim().toLowerCase() === "exness";
+}
 import {
   defaultChatId,
   editMessageText,
@@ -155,8 +160,10 @@ export async function applyApprovalDecision(
     return { ok: true, outcome: "rejected", message: `❌ Rejected by ${decidedBy}` };
   }
 
-  // Approve → the authoritative risk re-size happens inside openPaperTrade.
-  const opened = await openPaperTrade(approval.signalId);
+  // Approve → the authoritative risk re-size happens inside the trade opener.
+  const opened = isLiveBroker()
+    ? await openLiveTrade(approval.signalId)
+    : await openPaperTrade(approval.signalId);
   if (opened.status !== "opened") {
     return { ok: false, outcome: "open_failed", message: `Could not open: ${opened.reason ?? "unknown"}` };
   }

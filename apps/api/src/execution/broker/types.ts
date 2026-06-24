@@ -92,6 +92,17 @@ export interface BrokerPosition {
   clientTag?: string;
 }
 
+/** Deal history for a position closed by the broker (SL/TP hit or manual close). */
+export interface PositionHistory {
+  found: boolean;
+  /** Actual exit price of the last closing deal. */
+  exitPrice?: number;
+  /** Total realized profit in account currency (sum of all deals including swap/commission). */
+  profit?: number;
+  /** Unix timestamp of the close (seconds). */
+  closeTime?: number;
+}
+
 export interface Broker {
   /** "paper" | "exness_demo" | "exness_real" — used for labelling + the Trade.broker column. */
   readonly name: string;
@@ -101,6 +112,12 @@ export interface Broker {
   placeOrder(req: PlaceOrderRequest): Promise<PlaceOrderResult>;
   closePosition(ticket: string, opts?: ClosePositionOptions): Promise<ClosePositionResult>;
   getPositions(): Promise<BrokerPosition[]>;
+  /**
+   * Fetch deal history for a position that has already been closed by the broker.
+   * Called during the reconciliation loop when a ticket disappears from /positions.
+   * Optional — PaperBroker does not implement this.
+   */
+  getPositionHistory?(ticket: string): Promise<PositionHistory | null>;
 }
 
 /** Raised when the broker/bridge is unreachable or returns a non-OK status. */

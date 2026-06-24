@@ -282,6 +282,36 @@ def positions(_: None = Depends(require_token)):
         return {"positions": out}
 
 
+@app.get("/history/{ticket}")
+def position_history(ticket: int, _: None = Depends(require_token)):
+    """Return deal history for a closed position — used by the API's reconciliation loop.
+
+    When a live position is closed by SL/TP (or manually in the terminal), the API
+    detects that the ticket is gone from /positions and calls this endpoint to fetch
+    the actual exit price and realized profit so it can write the correct Trade close.
+    """
+    with _lock:
+        _ensure_connected()
+        import time as _time
+        deals = mt5.history_deals_get(position=ticket)
+        if not deals:
+            _time.sleep(0.3)
+            deals = mt5.history_deals_get(position=ticket)
+        if not deals:
+            return {"found": False}
+        # Sum all deal profits (covers commission, swap, and partial closes).
+        total_profit = float(sum(d.profit for d in deals))
+        # DEAL_ENTRY_OUT = 1; find the last exit deal to get the close price.
+        exits = [d for d in deals if d.entry == mt5.DEAL_ENTRY_OUT]
+        ref = exits[-1] if exits else deals[-1]
+        return {
+            "found": True,
+            "exitPrice": float(ref.price),
+            "profit": total_profit,
+            "closeTime": int(ref.time),
+        }
+
+
 def _realized_profit(position_id: int) -> float:
     """Sum the profit of all deals belonging to a (now-closed) position id."""
     import time

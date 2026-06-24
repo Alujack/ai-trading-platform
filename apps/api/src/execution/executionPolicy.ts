@@ -3,7 +3,13 @@ import { SYMBOL_CURRENCIES } from "../config/defaults";
 import { resolveExecutionMode, resolveRiskConfig } from "../config/resolve";
 import { prisma } from "../lib/prisma";
 import { requestApproval } from "../telegram/approvals";
+import { openLiveTrade } from "./liveTrade";
 import { openPaperTrade } from "./paperTrading";
+
+/** True when BROKER=exness (live MT5 execution). */
+function isLiveBroker(): boolean {
+  return (process.env.BROKER ?? "paper").trim().toLowerCase() === "exness";
+}
 
 /**
  * The execution decider — the single new branch between the gate and execution.
@@ -143,7 +149,9 @@ export async function decideExecution(signal: Signal): Promise<Decision> {
   }
 
   if (mode === "AUTO") {
-    const r = await openPaperTrade(signal.id);
+    const r = isLiveBroker()
+      ? await openLiveTrade(signal.id)
+      : await openPaperTrade(signal.id);
     return {
       mode,
       action: r.status === "opened" ? "opened" : "blocked",

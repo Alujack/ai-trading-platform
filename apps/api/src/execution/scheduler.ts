@@ -1,8 +1,13 @@
 import cron, { type ScheduledTask } from "node-cron";
 import { reconcilePendingSignals } from "./executionPolicy";
+import { monitorLiveTrades } from "./liveTrade";
 import { monitorOpenTrades, runWeeklyJournalReview } from "./paperTrading";
 import { runDailyBriefing } from "./dailyBriefing";
 import { expireStaleApprovals } from "../telegram/approvals";
+
+function isLiveBroker(): boolean {
+  return (process.env.BROKER ?? "paper").trim().toLowerCase() === "exness";
+}
 
 const PAPER_CRON = "*/5 * * * *";
 const WEEKLY_CRON = "0 0 * * 0"; // Sunday 00:00 UTC
@@ -31,10 +36,17 @@ async function runPaperTick(): Promise<void> {
     console.log(
       `[paperCron] ${new Date().toISOString()} reconcile scanned=${rec.scanned} opened=${rec.opened} awaiting=${rec.awaiting} held=${rec.held} blocked=${rec.blocked}`,
     );
-    const mon = await monitorOpenTrades();
-    console.log(
-      `[paperCron] ${new Date().toISOString()} monitor inspected=${mon.inspected} closed=${mon.closed} unchanged=${mon.unchanged} no_price=${mon.noPrice}`,
-    );
+    if (isLiveBroker()) {
+      const mon = await monitorLiveTrades();
+      console.log(
+        `[paperCron] ${new Date().toISOString()} live_monitor inspected=${mon.inspected} closed=${mon.closed} unchanged=${mon.unchanged}`,
+      );
+    } else {
+      const mon = await monitorOpenTrades();
+      console.log(
+        `[paperCron] ${new Date().toISOString()} monitor inspected=${mon.inspected} closed=${mon.closed} unchanged=${mon.unchanged} no_price=${mon.noPrice}`,
+      );
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[paperCron] ${new Date().toISOString()} error="${msg}"`);

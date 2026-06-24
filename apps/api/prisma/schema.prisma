@@ -123,21 +123,26 @@ model Signal {
 }
 
 model Trade {
-  id           String      @id @default(cuid())
-  signalId     String
-  signal       Signal      @relation(fields: [signalId], references: [id])
-  entryPrice   Decimal     @db.Decimal(18, 8)
-  exitPrice    Decimal?    @db.Decimal(18, 8)
-  positionSize Decimal     @db.Decimal(24, 8)
-  riskAmount   Decimal     @db.Decimal(18, 2)
-  profitLoss   Decimal?    @db.Decimal(18, 2)
-  status       TradeStatus @default(OPEN)
-  openedAt     DateTime    @default(now())
-  closedAt     DateTime?
-  journals     Journal[]
+  id              String      @id @default(cuid())
+  signalId        String
+  signal          Signal      @relation(fields: [signalId], references: [id])
+  entryPrice      Decimal     @db.Decimal(18, 8)
+  exitPrice       Decimal?    @db.Decimal(18, 8)
+  positionSize    Decimal     @db.Decimal(24, 8)
+  riskAmount      Decimal     @db.Decimal(18, 2)
+  profitLoss      Decimal?    @db.Decimal(18, 2)
+  status          TradeStatus @default(OPEN)
+  openedAt        DateTime    @default(now())
+  closedAt        DateTime?
+  // Live broker fields (Plan 08, Phase 4): set when BROKER=exness
+  externalOrderId String?     // MT5 ticket number
+  brokerFillPrice Decimal?    @db.Decimal(18, 8) // actual fill price from broker
+  broker          String?     // "paper" | "exness_demo" | "exness_real"
+  journals        Journal[]
 
   @@index([signalId])
   @@index([status])
+  @@index([externalOrderId])
 }
 
 model Journal {

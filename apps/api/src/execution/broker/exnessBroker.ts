@@ -17,6 +17,7 @@ import {
   type OrderSide,
   type PlaceOrderRequest,
   type PlaceOrderResult,
+  type PositionHistory,
   type SymbolSpec,
 } from "./types";
 import { brokerSymbol } from "./symbols";
@@ -112,6 +113,14 @@ export class ExnessBroker implements Broker {
       profit: p.profit,
       clientTag: p.clientTag,
     }));
+  }
+
+  async getPositionHistory(ticket: string): Promise<PositionHistory | null> {
+    try {
+      return await this.call<PositionHistory>(`/history/${encodeURIComponent(ticket)}`, "GET");
+    } catch {
+      return null;
+    }
   }
 }
 
