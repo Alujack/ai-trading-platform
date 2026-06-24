@@ -84,6 +84,11 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - AI_SERVICE_URL=http://ai:8000
+      - BROKER=${BROKER:-paper}
+      - EXNESS_ENV=${EXNESS_ENV:-demo}
+      - MT5_BRIDGE_URL=${MT5_BRIDGE_URL:-}
+      - MT5_BRIDGE_TOKEN=${MT5_BRIDGE_TOKEN:-}
+      - 'BROKER_SYMBOL_MAP={"EURUSD":"EURUSDm","XAUUSD":"XAUUSDm","BTCUSD":"BTCUSDm"}'
     ports:
       - "${API_PORT:-4000}:4000"
     volumes:

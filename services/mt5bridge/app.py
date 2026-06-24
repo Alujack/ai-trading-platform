@@ -131,6 +131,20 @@ class CloseReq(BaseModel):
     ticket: int
 
 
+_TF_MAP: dict[str, int] = {
+    "1min": mt5.TIMEFRAME_M1,
+    "M1":   mt5.TIMEFRAME_M1,
+    "5min": mt5.TIMEFRAME_M5,
+    "M5":   mt5.TIMEFRAME_M5,
+    "15min": mt5.TIMEFRAME_M15,
+    "M15":  mt5.TIMEFRAME_M15,
+    "60min": mt5.TIMEFRAME_H1,
+    "H1":   mt5.TIMEFRAME_H1,
+    "daily": mt5.TIMEFRAME_D1,
+    "D1":   mt5.TIMEFRAME_D1,
+}
+
+
 # --------------------------------------------------------------------------- #
 # Endpoints
 # --------------------------------------------------------------------------- #
@@ -321,6 +335,45 @@ def _realized_profit(position_id: int) -> float:
         time.sleep(0.3)
         deals = mt5.history_deals_get(position=position_id)
     return float(sum(d.profit for d in deals)) if deals else 0.0
+
+
+@app.get("/candles/{symbol}")
+def candles(
+    symbol: str,
+    timeframe: str = "5min",
+    count: int = 100,
+    _: None = Depends(require_token),
+):
+    """Return the most recent `count` OHLCV bars for `symbol` from MT5.
+
+    Timeframe accepts platform names (1min, 5min, 15min, 60min, daily)
+    or MT5 names (M1, M5, M15, H1, D1).
+    """
+    tf = _TF_MAP.get(timeframe)
+    if tf is None:
+        raise HTTPException(400, f"unknown timeframe '{timeframe}'. Use: {list(_TF_MAP)}")
+    if not (1 <= count <= 5000):
+        raise HTTPException(400, "count must be between 1 and 5000")
+
+    with _lock:
+        _ensure_connected()
+        _select_symbol(symbol)
+        rates = mt5.copy_rates_from_pos(symbol, tf, 0, count)
+
+    if rates is None or len(rates) == 0:
+        raise HTTPException(404, f"no bar data for {symbol}/{timeframe} — is Market Watch open?")
+
+    return [
+        {
+            "timestamp": int(r["time"]),
+            "open":   float(r["open"]),
+            "high":   float(r["high"]),
+            "low":    float(r["low"]),
+            "close":  float(r["close"]),
+            "volume": int(r["tick_volume"]),
+        }
+        for r in rates
+    ]
 
 
 if __name__ == "__main__":
