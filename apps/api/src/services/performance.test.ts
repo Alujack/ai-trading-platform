@@ -31,7 +31,20 @@ describe("computePerformance", () => {
       totalPnL: 0,
       maxDrawdown: 0,
       averageRR: 0,
+      expectancy: 0,
+      profitFactor: 0,
     });
+  });
+
+  it("computes expectancy (avg P&L per trade) and profit factor", () => {
+    // winLong +20, lossLong -10 → expectancy (20-10)/2 = 5; PF 20/10 = 2
+    const r = computePerformance([winLong, lossLong]);
+    expect(r.expectancy).toBe(5);
+    expect(r.profitFactor).toBe(2);
+  });
+
+  it("reports Infinity profit factor when there are no losses", () => {
+    expect(computePerformance([winLong]).profitFactor).toBe(Infinity);
   });
 
   it("computes win rate, totalPnL and averageRR for a single winning LONG", () => {

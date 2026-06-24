@@ -107,6 +107,36 @@ class JournalReviewRequest(BaseModel):
     trades: list[JournalTrade] = Field(..., min_length=1, max_length=100)
 
 
+class TradeReviewInput(BaseModel):
+    """One CLOSED trade, with its original plan, for per-trade post-mortem."""
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    symbol: str
+    direction: Literal["LONG", "SHORT"]
+    strategy_name: str | None = Field(default=None, alias="strategyName")
+    entry_price: float = Field(..., alias="entryPrice")
+    stop_loss: float | None = Field(default=None, alias="stopLoss")
+    take_profit: float | None = Field(default=None, alias="takeProfit")
+    exit_price: float | None = Field(default=None, alias="exitPrice")
+    profit_loss: float | None = Field(default=None, alias="profitLoss")
+    r_multiple: float | None = Field(default=None, alias="rMultiple")
+    exit_reason: str | None = Field(default=None, alias="exitReason")
+    opened_at: str = Field(..., alias="openedAt")
+    closed_at: str | None = Field(default=None, alias="closedAt")
+    planned_reasoning: str | None = Field(default=None, alias="plannedReasoning")
+
+
+class TradeReviewRequest(BaseModel):
+    """A single closed trade + optional price context for /analyze/trade-review."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    trade: TradeReviewInput
+    candles: list[Candle] = Field(default_factory=list, max_length=200)
+    indicators: list[Indicator] = Field(default_factory=list, max_length=50)
+
+
 class Headline(BaseModel):
     """One published news item supplied to /analyze/news-summary."""
 
@@ -159,6 +189,25 @@ class JournalReviewResponse(BaseModel):
     strengths: list[str]
     weaknesses: list[str]
     suggestions: list[str]
+
+
+class TradeReviewResponse(BaseModel):
+    """Output schema for /analyze/trade-review — a per-trade post-mortem.
+
+    `grade` scores the PROCESS, not the outcome: a winning trade taken against
+    the plan can still earn a low grade, and a disciplined loss (followed the
+    plan, stopped fairly) can grade well. This keeps the agent learning the
+    behavior that compounds, not just chasing green P&L.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    grade: Literal["A", "B", "C", "D", "F"]
+    outcome: Literal["WIN", "LOSS", "BREAKEVEN"]
+    why: str
+    whatWorked: list[str]  # noqa: N815 — wire format is camelCase
+    whatFailed: list[str]  # noqa: N815
+    lesson: str
 
 
 class NewsSummaryResponse(BaseModel):

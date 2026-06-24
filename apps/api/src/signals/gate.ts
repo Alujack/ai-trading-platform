@@ -186,6 +186,15 @@ export async function gateCandidate(candidate: SignalCandidate): Promise<GateRes
   if (typeof aiResult.score !== "number" || aiResult.score < minScore) {
     return { status: "rejected", reason: `ai_score_too_low score=${aiResult.score}`, score: aiResult.score };
   }
+  // The AI's *judgment* gates the trade, not just its number. A high score with
+  // an explicit `approved: false` (e.g. the model flags bad structure or event
+  // risk in its reasoning) must still be rejected — otherwise the reasoning layer
+  // is decorative. Treat a missing/non-false flag as approval so a minimal AI
+  // response that only returns a score keeps working.
+  if (aiResult.approved === false) {
+    const why = aiResult.concerns?.length ? aiResult.concerns.join("; ") : aiResult.reasoning;
+    return { status: "rejected", reason: `ai_not_approved: ${why ?? "no reason given"}`, score: aiResult.score };
+  }
 
   const newsLite: NewsLite[] = upcomingNews.map((n) => ({
     title: n.title,

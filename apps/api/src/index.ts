@@ -6,6 +6,8 @@ import { redis, connectRedis } from "./lib/redis";
 import {
   startPaperTradingScheduler,
   startWeeklyReviewScheduler,
+  startDailyBriefingScheduler,
+  runDailyBriefingOnce,
   stopExecutionSchedulers,
 } from "./execution/scheduler";
 
@@ -31,6 +33,13 @@ if (process.env.ENABLE_PAPER_TRADING === "true") {
 
 if (process.env.ENABLE_WEEKLY_REVIEW === "true") {
   startWeeklyReviewScheduler();
+}
+
+// Daily briefing: the agent's morning routine. Runs once on startup (a summary
+// every time the system starts) and then daily at 06:00 UTC.
+if (process.env.ENABLE_DAILY_BRIEFING !== "false") {
+  startDailyBriefingScheduler();
+  void runDailyBriefingOnce();
 }
 
 async function shutdown(signal: string): Promise<void> {

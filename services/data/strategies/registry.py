@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from .base import Strategy
-from .ict import IctConfluence, IctFvg, IctOrderBlock, IctSweepMss
+from .ict import IctConfluence, IctFvg, IctOrderBlock, IctRandomBaseline, IctSweepMss
 from .meanrev_rsi import MeanRevRsi
 from .scalp_ema import ScalpEma
 from .trend_ema import TrendEma
@@ -23,6 +23,10 @@ STRATEGY_FACTORIES: dict[str, Callable[[dict[str, Any] | None], Strategy]] = {
     "ict_fvg": IctFvg,
     # The aggregator: confluence of the above + premium/discount + killzone → ≤1 signal.
     "ict_confluence": IctConfluence,
+    # Geometry-matched random control for ict_confluence (build plan §8). Same
+    # killzone + structural stop + min-RR target frame, but random direction —
+    # the significance baseline ict_confluence's OOS edge must beat.
+    "ict_random_baseline": IctRandomBaseline,
 }
 
 

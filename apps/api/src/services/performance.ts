@@ -12,6 +12,10 @@ export interface PerformanceResponse {
   totalPnL: number;
   maxDrawdown: number;
   averageRR: number;
+  // Expectancy = average P&L per trade (the real edge metric — what win rate
+  // alone cannot tell you). Profit factor = gross profit ÷ gross loss (>1 = edge).
+  expectancy: number;
+  profitFactor: number;
 }
 
 function round2(n: number): number {
@@ -26,11 +30,18 @@ export function computePerformance(trades: TradeStats[]): PerformanceResponse {
   let runningPnL = 0;
   let peakPnL = 0;
   let maxDrawdown = 0;
+  let grossProfit = 0;
+  let grossLoss = 0;
 
   for (const t of trades) {
     const pnl = t.profitLoss ?? 0;
     totalPnL += pnl;
-    if (pnl > 0) wins += 1;
+    if (pnl > 0) {
+      wins += 1;
+      grossProfit += pnl;
+    } else if (pnl < 0) {
+      grossLoss += Math.abs(pnl);
+    }
 
     if (t.exitPrice !== null) {
       const risk = Math.abs(t.entryPrice - t.stopLoss);
@@ -54,5 +65,7 @@ export function computePerformance(trades: TradeStats[]): PerformanceResponse {
     totalPnL: round2(totalPnL),
     maxDrawdown: round2(maxDrawdown),
     averageRR: rrCount > 0 ? round2(rrSum / rrCount) : 0,
+    expectancy: trades.length > 0 ? round2(totalPnL / trades.length) : 0,
+    profitFactor: grossLoss > 0 ? round2(grossProfit / grossLoss) : grossProfit > 0 ? Infinity : 0,
   };
 }

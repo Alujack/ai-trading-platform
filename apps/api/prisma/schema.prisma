@@ -147,6 +147,13 @@ model Journal {
   notes     String
   aiReview  String
   emotions  String?
+  // Per-trade learning loop: filled on close by /analyze/trade-review. `grade`
+  // scores the PROCESS (A–F), not the P&L; `rMultiple` (net P&L ÷ risk) feeds
+  // expectancy tracking; `lesson` is the one actionable takeaway.
+  grade     String? // "A" | "B" | "C" | "D" | "F"
+  outcome   String? // "WIN" | "LOSS" | "BREAKEVEN"
+  lesson    String?
+  rMultiple Decimal? @db.Decimal(12, 4)
   createdAt DateTime @default(now())
 
   @@index([tradeId])

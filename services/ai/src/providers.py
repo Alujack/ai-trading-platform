@@ -70,6 +70,18 @@ class MockProvider:
                 "weaknesses": ["Exits a touch early on winners"],
                 "suggestions": ["Let winners run to the planned target before scaling out"],
             }
+        elif model == "TradeReviewResponse":
+            pl = ((user_payload or {}).get("trade") or {}).get("profitLoss")
+            outcome = "WIN" if (pl or 0) > 0 else "LOSS" if (pl or 0) < 0 else "BREAKEVEN"
+            data = {
+                "grade": "B" if outcome != "LOSS" else "C",
+                "outcome": outcome,
+                "why": MOCK_TAG + f"Trade resolved as a {outcome.lower()} based on the supplied P&L; "
+                "switch to a real provider for an actual process critique.",
+                "whatWorked": ["Position sizing followed the plan"],
+                "whatFailed": ["Mock review — no real execution analysis performed"],
+                "lesson": "Enable a real AI provider to get a genuine per-trade lesson.",
+            }
         elif model == "NewsSummaryResponse":
             data = {
                 "summary": MOCK_TAG + "Headlines summarized without a live model.",

@@ -151,6 +151,75 @@ export function evaluateExit(
   return null;
 }
 
+interface TradeReviewResponse {
+  grade: string;
+  outcome: string;
+  why: string;
+  whatWorked: string[];
+  whatFailed: string[];
+  lesson: string;
+}
+
+/**
+ * Grade a just-closed trade on PROCESS (not P&L) and extract one lesson, via the
+ * AI service's /analyze/trade-review. Best-effort: a review failure must never
+ * block the trade close, so this returns null and the close proceeds.
+ */
+async function reviewClosedTrade(args: {
+  sig: {
+    symbol: string;
+    timeframe: string;
+    direction: string;
+    stopLoss: Prisma.Decimal;
+    takeProfit: Prisma.Decimal;
+    strategyName: string | null;
+    aiReasoning: string;
+  };
+  entry: number;
+  exitPrice: number;
+  pnl: number;
+  rMultiple: number;
+  exitReason: string;
+  openedAt: Date;
+  closedAt: Date;
+}): Promise<TradeReviewResponse | null> {
+  try {
+    const res = await fetch(`${AI_SERVICE_URL}/analyze/trade-review`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        trade: {
+          symbol: args.sig.symbol,
+          direction: args.sig.direction,
+          strategyName: args.sig.strategyName,
+          entryPrice: args.entry,
+          stopLoss: num(args.sig.stopLoss),
+          takeProfit: num(args.sig.takeProfit),
+          exitPrice: args.exitPrice,
+          profitLoss: args.pnl,
+          rMultiple: args.rMultiple,
+          exitReason: args.exitReason,
+          openedAt: args.openedAt.toISOString(),
+          closedAt: args.closedAt.toISOString(),
+          plannedReasoning: args.sig.aiReasoning,
+        },
+        candles: [],
+        indicators: [],
+      }),
+    });
+    if (!res.ok) {
+      console.error(`[paperTrading] trade-review failed http_${res.status}`);
+      return null;
+    }
+    return (await res.json()) as TradeReviewResponse;
+  } catch (err) {
+    console.error(
+      `[paperTrading] trade-review unreachable: ${err instanceof Error ? err.message : err}`,
+    );
+    return null;
+  }
+}
+
 export async function monitorOpenTrades(): Promise<MonitorSummary> {
   const open = await prisma.trade.findMany({
     where: { status: "OPEN" },
@@ -188,12 +257,37 @@ export async function monitorOpenTrades(): Promise<MonitorSummary> {
     const directionSign = sig.direction === "LONG" ? 1 : -1;
     const pnl = (decision.exitPrice - entry) * size * directionSign;
 
+    // R-multiple (net P&L ÷ risk) and a deterministic outcome — both computed
+    // here so expectancy tracking works even if the AI review is unavailable.
+    const riskAmount = num(trade.riskAmount);
+    const rMultiple = Number.isFinite(riskAmount) && riskAmount > 0 ? pnl / riskAmount : 0;
+    const outcome = pnl > 0 ? "WIN" : pnl < 0 ? "LOSS" : "BREAKEVEN";
+    const closedAt = new Date();
+
+    // Per-trade learning loop: grade the process + extract a lesson (best-effort).
+    const review = await reviewClosedTrade({
+      sig,
+      entry,
+      exitPrice: decision.exitPrice,
+      pnl,
+      rMultiple,
+      exitReason: decision.outcome,
+      openedAt: trade.openedAt,
+      closedAt,
+    });
+
     const notes =
       `Auto-closed by paper trading engine. ${sig.direction} ${sig.symbol} ${sig.timeframe}. ` +
-      `Outcome: ${decision.outcome}. ` +
+      `Outcome: ${outcome}. ` +
       `Entry ${entry.toFixed(5)} → Exit ${decision.exitPrice.toFixed(5)}. ` +
-      `Size ${size.toFixed(4)}, P&L $${pnl.toFixed(2)}. ` +
-      `(notes placeholder — fill in trader observations)`;
+      `Size ${size.toFixed(4)}, P&L $${pnl.toFixed(2)}, R ${rMultiple.toFixed(2)}.`;
+
+    const aiReview = review
+      ? `Grade ${review.grade} (${review.outcome}). ${review.why} ` +
+        `Worked: ${review.whatWorked.join("; ") || "—"}. ` +
+        `Failed: ${review.whatFailed.join("; ") || "—"}. ` +
+        `Lesson: ${review.lesson}`
+      : "(per-trade AI review unavailable at close)";
 
     await prisma.$transaction([
       prisma.trade.update({
@@ -202,7 +296,7 @@ export async function monitorOpenTrades(): Promise<MonitorSummary> {
           exitPrice: decision.exitPrice.toFixed(8),
           profitLoss: pnl.toFixed(2),
           status: "CLOSED",
-          closedAt: new Date(),
+          closedAt,
         },
       }),
       prisma.signal.update({
@@ -213,14 +307,19 @@ export async function monitorOpenTrades(): Promise<MonitorSummary> {
         data: {
           tradeId: trade.id,
           notes,
-          aiReview: "(awaiting weekly review)",
+          aiReview,
+          grade: review?.grade ?? null,
+          outcome,
+          lesson: review?.lesson ?? null,
+          rMultiple: rMultiple.toFixed(4),
         },
       }),
     ]);
 
     closed += 1;
     console.log(
-      `[paperTrading] closed trade=${trade.id} ${sig.symbol}/${sig.timeframe} ${decision.outcome} pnl=$${pnl.toFixed(2)}`,
+      `[paperTrading] closed trade=${trade.id} ${sig.symbol}/${sig.timeframe} ` +
+        `${outcome} pnl=$${pnl.toFixed(2)} R=${rMultiple.toFixed(2)} grade=${review?.grade ?? "n/a"}`,
     );
   }
 

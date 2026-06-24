@@ -1,17 +1,21 @@
 import cron, { type ScheduledTask } from "node-cron";
 import { reconcilePendingSignals } from "./executionPolicy";
 import { monitorOpenTrades, runWeeklyJournalReview } from "./paperTrading";
+import { runDailyBriefing } from "./dailyBriefing";
 import { expireStaleApprovals } from "../telegram/approvals";
 
 const PAPER_CRON = "*/5 * * * *";
 const WEEKLY_CRON = "0 0 * * 0"; // Sunday 00:00 UTC
+const DAILY_CRON = "0 6 * * *"; // 06:00 UTC — morning briefing before the session
 const EXPIRY_CRON = "* * * * *"; // every minute — approvals are perishable
 
 let paperTask: ScheduledTask | null = null;
 let weeklyTask: ScheduledTask | null = null;
+let dailyTask: ScheduledTask | null = null;
 let expiryTask: ScheduledTask | null = null;
 let paperRunning = false;
 let weeklyRunning = false;
+let dailyRunning = false;
 let expiryRunning = false;
 
 async function runPaperTick(): Promise<void> {
@@ -61,6 +65,22 @@ async function runWeeklyTick(): Promise<void> {
   }
 }
 
+async function runDailyTick(): Promise<void> {
+  if (dailyRunning) {
+    console.log(`[dailyBriefingCron] ${new Date().toISOString()} prev_run_in_progress, skipping`);
+    return;
+  }
+  dailyRunning = true;
+  try {
+    await runDailyBriefing();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[dailyBriefingCron] ${new Date().toISOString()} error="${msg}"`);
+  } finally {
+    dailyRunning = false;
+  }
+}
+
 async function runExpiryTick(): Promise<void> {
   if (expiryRunning) return;
   expiryRunning = true;
@@ -99,7 +119,20 @@ export function startWeeklyReviewScheduler(): void {
   });
 }
 
+export function startDailyBriefingScheduler(): void {
+  if (dailyTask) return;
+  console.log(`[dailyBriefingCron] scheduled "${DAILY_CRON}"`);
+  dailyTask = cron.schedule(DAILY_CRON, () => {
+    void runDailyTick();
+  });
+}
+
 export function stopExecutionSchedulers(): void {
+  if (dailyTask) {
+    dailyTask.stop();
+    dailyTask = null;
+    console.log("[dailyBriefingCron] stopped");
+  }
   if (paperTask) {
     paperTask.stop();
     paperTask = null;
@@ -123,4 +156,8 @@ export async function runPaperTradingOnce(): Promise<void> {
 
 export async function runWeeklyReviewOnce(): Promise<void> {
   await runWeeklyTick();
+}
+
+export async function runDailyBriefingOnce(): Promise<void> {
+  await runDailyTick();
 }

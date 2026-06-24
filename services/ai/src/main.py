@@ -21,6 +21,7 @@ from .prompts import (
     JOURNAL_REVIEW_SYSTEM,
     MARKET_CONTEXT_SYSTEM,
     NEWS_SUMMARY_SYSTEM,
+    TRADE_REVIEW_SYSTEM,
     VALIDATE_SIGNAL_SYSTEM,
 )
 from .schemas import (
@@ -30,6 +31,8 @@ from .schemas import (
     MarketContextResponse,
     NewsSummaryRequest,
     NewsSummaryResponse,
+    TradeReviewRequest,
+    TradeReviewResponse,
     ValidateSignalRequest,
     ValidateSignalResponse,
     serialize_for_prompt,
@@ -166,6 +169,20 @@ def journal_review(body: JournalReviewRequest) -> JournalReviewResponse:
         system_prompt=JOURNAL_REVIEW_SYSTEM,
         user_payload=serialize_for_prompt(body),
         response_model=JournalReviewResponse,
+    )
+
+
+@analyze_router.post("/trade-review", response_model=TradeReviewResponse)
+def trade_review(body: TradeReviewRequest) -> TradeReviewResponse:
+    """Grade ONE closed trade on process (not outcome) and explain why it won/lost.
+
+    Called when a trade closes (the learning loop): the verdict + lesson are
+    stored on the Journal so the agent compounds discipline over time.
+    """
+    return analyze(
+        system_prompt=TRADE_REVIEW_SYSTEM,
+        user_payload=serialize_for_prompt(body),
+        response_model=TradeReviewResponse,
     )
 
 

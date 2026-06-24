@@ -19,6 +19,7 @@ from __future__ import annotations
 from .confluence import IctConfluence
 from .fvg import IctFvg
 from .order_block import IctOrderBlock
+from .random_baseline import IctRandomBaseline
 from .sweep_mss import IctSweepMss
 
-__all__ = ["IctConfluence", "IctFvg", "IctOrderBlock", "IctSweepMss"]
+__all__ = ["IctConfluence", "IctFvg", "IctOrderBlock", "IctRandomBaseline", "IctSweepMss"]
