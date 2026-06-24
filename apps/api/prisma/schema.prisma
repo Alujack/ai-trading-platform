@@ -214,6 +214,24 @@ model ConfigAudit {
   @@index([createdAt])
 }
 
+// A single backtest run: the config it was run with, the per-(strategy,symbol,
+// timeframe) result metrics, and the equity curve for each, so the dashboard can
+// render results without re-running anything. Written by services/data/backtester.py
+// (--save-db); read by the web app via GET /api/backtests.
+model BacktestRun {
+  id              String   @id @default(cuid())
+  label           String?
+  startingBalance Decimal  @db.Decimal(18, 2)
+  riskPct         Decimal  @db.Decimal(7, 4)
+  costsApplied    Boolean  @default(true)
+  config          Json // { timeframes, symbols, spread/slippage/commission overrides }
+  results         Json // array of metric objects (one per strategy×symbol×timeframe) + verdict
+  equityCurves    Json? // { "strategy|symbol|timeframe": [[isoTimestamp, equity], ...] }
+  createdAt       DateTime @default(now())
+
+  @@index([createdAt])
+}
+
 // Human-in-the-loop approval for CONFIRM-mode signals.
 model Approval {
   id        String         @id @default(cuid())

@@ -56,15 +56,22 @@ async def fetch_candles(
     timeframe: str,
     *,
     end_date: datetime | None = None,
+    output_size: int = 100,
 ) -> list[CandleRow]:
     """Fetch a batch of OHLCV candles for symbol/timeframe.
 
     end_date (Twelve Data only) lets callers page backward through history —
     bars returned will have timestamps ≤ end_date. Used by backfill scripts.
+
+    output_size (Twelve Data only) is the max bars per request. The live worker
+    uses the small default; backfill passes the free-tier max (5000) to pull far
+    more history per credit.
     """
     provider = PROVIDER_BY_SYMBOL.get(symbol)
     if provider == "twelvedata":
-        return await _fetch_twelvedata(client, symbol, timeframe, end_date=end_date)
+        return await _fetch_twelvedata(
+            client, symbol, timeframe, end_date=end_date, output_size=output_size
+        )
     if provider == "alpha_vantage":
         return await _fetch_alpha_vantage(client, symbol, timeframe)
     raise ValueError(f"No provider configured for symbol {symbol}")
@@ -108,11 +115,14 @@ async def _fetch_twelvedata(
     timeframe: str,
     *,
     end_date: datetime | None = None,
+    output_size: int = 100,
 ) -> list[CandleRow]:
+    # Twelve Data caps outputsize at 5000 per request on every plan (incl. free).
+    size = max(1, min(int(output_size), 5000))
     params: dict[str, str] = {
         "symbol": _TWELVEDATA_SYMBOL[symbol],
         "interval": _TWELVEDATA_INTERVAL[timeframe],
-        "outputsize": "100",
+        "outputsize": str(size),
         "format": "JSON",
         "apikey": _twelvedata_key(),
     }

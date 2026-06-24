@@ -57,6 +57,32 @@ def test_trend_ema_skips_when_trend_not_bullish() -> None:
     assert strat.evaluate(_window(bar)) == []
 
 
+def test_trend_ema_emits_on_fx_scale_atr() -> None:
+    """Regression: the volatility floor is relative (ATR/price), so an FX-scale
+    bar (EURUSD ~1.10, ATR ~0.0015 = 0.14% of price) must clear it. The legacy
+    absolute `atrMin=5` blocked every FX symbol — atr was never > 5."""
+    strat = build_strategy("trend_ema", None)
+    bar = IndicatorBar(
+        timestamp=TS, close=Decimal("1.10"),
+        ema20=Decimal("1.10"), ema50=Decimal("1.09"), rsi=Decimal("48"), atr=Decimal("0.0015"),
+    )
+    out = strat.evaluate(_window(bar))
+    assert len(out) == 1
+    assert out[0].direction == "LONG"
+    assert out[0].entry == Decimal("1.10")
+
+
+def test_trend_ema_skips_when_volatility_below_floor() -> None:
+    """An FX-scale bar with ATR below 0.1% of price (0.0005/1.10 ≈ 0.045%) is
+    too quiet and must be skipped."""
+    strat = build_strategy("trend_ema", None)
+    bar = IndicatorBar(
+        timestamp=TS, close=Decimal("1.10"),
+        ema20=Decimal("1.10"), ema50=Decimal("1.09"), rsi=Decimal("48"), atr=Decimal("0.0005"),
+    )
+    assert strat.evaluate(_window(bar)) == []
+
+
 def test_meanrev_emits_long_when_oversold_in_uptrend() -> None:
     strat = build_strategy("meanrev_rsi", None)
     bar = IndicatorBar(

@@ -6,8 +6,9 @@ timeframe (5min), with small pip-based targets rather than ATR-based stops:
   LONG  when EMA20 > EMA50 and close > EMA20 and RSI in a momentum band.
   SHORT when EMA20 < EMA50 and close < EMA20 and RSI in the mirror band.
 
-Targets are fixed in pips: TP = 10 pips, SL = 5 pips (risk:reward 1:2, which
-clears the risk engine's MIN_RR). Pip size is per-symbol.
+Targets are fixed in pips: by default TP = 100 pips, SL = 50 pips (risk:reward
+1:2, which clears the risk engine's MIN_RR); both are overridable via the
+`tpPips` / `slPips` params. Pip size is per-symbol (see `_DEFAULT_PIP`).
 """
 from __future__ import annotations
 

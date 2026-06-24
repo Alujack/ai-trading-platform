@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from .base import Strategy
+from .ict import IctFvg, IctOrderBlock, IctSweepMss
 from .meanrev_rsi import MeanRevRsi
 from .scalp_ema import ScalpEma
 from .trend_ema import TrendEma
@@ -16,6 +17,10 @@ STRATEGY_FACTORIES: dict[str, Callable[[dict[str, Any] | None], Strategy]] = {
     "trend_ema": TrendEma,
     "meanrev_rsi": MeanRevRsi,
     "scalp_ema": ScalpEma,
+    # ICT detector family (build plan §3) — multi-bar, full-OHLC price-action.
+    "ict_sweep_mss": IctSweepMss,
+    "ict_order_block": IctOrderBlock,
+    "ict_fvg": IctFvg,
 }
 
 

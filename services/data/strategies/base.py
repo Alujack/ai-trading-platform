@@ -6,7 +6,7 @@ AI/risk gate directly — the runner POSTs candidates to the API gate.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
 from typing import Any, Protocol, runtime_checkable
@@ -20,7 +20,13 @@ VOLATILE = "VOLATILE"
 
 @dataclass(slots=True)
 class IndicatorBar:
-    """One bar's close plus its indicator readings (any may be missing)."""
+    """One bar's close plus its indicator readings (any may be missing).
+
+    `open`/`high`/`low` are optional so close-only strategies (and their test
+    fixtures) keep working unchanged. Multi-bar price-action detectors (e.g. the
+    ICT family) require the full OHLC and guard against `None` exactly as the
+    indicator-based strategies guard against missing EMAs/RSI.
+    """
 
     timestamp: datetime
     close: Decimal
@@ -29,6 +35,39 @@ class IndicatorBar:
     ema50: Decimal | None = None
     ema200: Decimal | None = None
     atr: Decimal | None = None
+    open: Decimal | None = None
+    high: Decimal | None = None
+    low: Decimal | None = None
+    volume: Decimal | None = None
+
+
+@dataclass(slots=True)
+class Drawing:
+    """A frontend-agnostic chart annotation a detector emits to show *what it saw*.
+
+    Source-of-truth primitive (per the ICT build plan §4); the dashboard and the
+    Telegram/Discord PNG renderer translate these into TradingView/mplfinance
+    overlays. `coords` is a list of {"t": iso8601|None, "p": float} points — a box
+    needs two corners, an hline needs one price (t=None), a line/arrow needs two
+    endpoints, a fib needs the [from, to] anchors.
+    """
+
+    type: str  # "box" | "line" | "hline" | "label" | "fib" | "arrow" | "zone"
+    coords: list[dict[str, Any]]
+    color: str | None = None
+    label: str | None = None
+
+    @staticmethod
+    def _pt(ts: datetime | None, price: Decimal) -> dict[str, Any]:
+        return {"t": ts.isoformat() if ts is not None else None, "p": float(price)}
+
+    def to_dict(self) -> dict[str, Any]:
+        out: dict[str, Any] = {"type": self.type, "coords": self.coords}
+        if self.color is not None:
+            out["color"] = self.color
+        if self.label is not None:
+            out["label"] = self.label
+        return out
 
 
 @dataclass(slots=True)
@@ -58,6 +97,7 @@ class SignalCandidate:
     client_id: str | None = None
     cooldown_ms: int | None = None
     ai_min_score: int | None = None
+    drawings: list[Drawing] = field(default_factory=list)
 
     def to_payload(self) -> dict[str, Any]:
         """Serialize to the camelCase JSON the gate endpoint validates."""
@@ -78,6 +118,8 @@ class SignalCandidate:
             payload["cooldownMs"] = int(self.cooldown_ms)
         if self.ai_min_score is not None:
             payload["aiMinScore"] = int(self.ai_min_score)
+        if self.drawings:
+            payload["drawings"] = [d.to_dict() for d in self.drawings]
         return payload
 
 
@@ -85,5 +127,12 @@ class SignalCandidate:
 class Strategy(Protocol):
     name: str
     regimes: set[str]
+
+    # Optional. How many trailing bars the strategy needs in its `BarWindow`.
+    # Close-only strategies act on a single bar and omit it (treated as 1 by the
+    # runner/backtest engine). Multi-bar price-action detectors (ICT) declare a
+    # larger value, e.g. `lookback = 80`, so the window carries enough OHLC
+    # history to confirm swings/structure. Read via getattr(strategy, "lookback", 1).
+    # lookback: int
 
     def evaluate(self, window: BarWindow) -> list[SignalCandidate]: ...

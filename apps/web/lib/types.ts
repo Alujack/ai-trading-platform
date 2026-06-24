@@ -204,6 +204,74 @@ export interface TelegramStatus {
   webhook?: { url: string; pending: number; lastError?: string } | null;
 }
 
+// ---- Backtests ----
+
+// One result row (per strategy × symbol × timeframe). Mirrors the Python
+// Metrics dataclass plus the `verdict` string baked in when the run is saved.
+export interface BacktestMetric {
+  strategy: string;
+  symbol: string;
+  timeframe: string;
+  bars_tested: number;
+  signals_generated: number;
+  trades: number;
+  wins: number;
+  losses: number;
+  breakeven: number;
+  win_rate: number;
+  gross_profit: number;
+  gross_loss: number;
+  net_pnl: number;
+  profit_factor: number;
+  avg_win: number;
+  avg_loss: number;
+  expectancy: number;
+  expectancy_r: number;
+  payoff_ratio: number;
+  starting_balance: number;
+  ending_balance: number;
+  return_pct: number;
+  max_drawdown: number;
+  max_drawdown_pct: number;
+  max_consecutive_losses: number;
+  avg_hold_bars: number;
+  total_costs: number;
+  sharpe_per_trade: number;
+  eod_closed: number;
+  verdict: string;
+}
+
+export interface BacktestRunConfig {
+  timeframes: string[];
+  symbols: string[];
+  strategies: string[];
+  spread: number | null;
+  slippage: number | null;
+  commissionBps: number | null;
+}
+
+export interface BacktestRunSummary {
+  id: string;
+  label: string | null;
+  startingBalance: number;
+  riskPct: number;
+  costsApplied: boolean;
+  config: BacktestRunConfig;
+  results: BacktestMetric[];
+  createdAt: string;
+}
+
+export interface BacktestRunsResponse {
+  runs: BacktestRunSummary[];
+}
+
+// [isoTimestamp, equity] points, keyed by "strategy|symbol|timeframe".
+export type EquityCurves = Record<string, [string, number][]>;
+
+export interface BacktestRunDetail extends BacktestRunSummary {
+  equityCurves: EquityCurves;
+}
+
 export type MarketBias = "Bullish" | "Bearish" | "Neutral";
 
 export interface MarketContext {

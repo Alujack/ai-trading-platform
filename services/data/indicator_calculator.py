@@ -42,7 +42,7 @@ def normalize_timeframe(tf: str) -> str:
 
 
 async def _load_candles(
-    pool: asyncpg.Pool, symbol: str, timeframe: str
+    pool: asyncpg.Pool, symbol: str, timeframe: str, lookback_bars: int = LOOKBACK_BARS
 ) -> pd.DataFrame:
     rows = await pool.fetch(
         """
@@ -54,7 +54,7 @@ async def _load_candles(
         """,
         symbol,
         timeframe,
-        LOOKBACK_BARS,
+        lookback_bars,
     )
     if not rows:
         return pd.DataFrame()
@@ -137,15 +137,19 @@ async def _upsert_indicators(
     return len(payload)
 
 
-async def calculate_indicators(symbol: str, timeframe: str) -> int:
+async def calculate_indicators(
+    symbol: str, timeframe: str, lookback_bars: int = LOOKBACK_BARS
+) -> int:
     """Compute indicators for (symbol, timeframe) and upsert into Indicator.
 
     Returns the number of rows written. Safe to call after each candle
-    ingestion — the upsert keeps in-progress bars current.
+    ingestion — the upsert keeps in-progress bars current. Pass a large
+    lookback_bars (or use the CLI --full flag) to recompute across the entire
+    stored history, which backtesting needs.
     """
     timeframe = normalize_timeframe(timeframe)
     pool = await init_pool()
-    df = await _load_candles(pool, symbol, timeframe)
+    df = await _load_candles(pool, symbol, timeframe, lookback_bars)
     if df.empty:
         log.info("indicators_skip symbol=%s tf=%s reason=no_candles", symbol, timeframe)
         return 0
@@ -191,6 +195,14 @@ async def _cli() -> None:
     parser.add_argument(
         "--show", type=int, default=5, help="Print last N indicator rows after compute"
     )
+    parser.add_argument(
+        "--full", action="store_true",
+        help="Recompute indicators across ALL stored candles (for backtesting), not just the recent window",
+    )
+    parser.add_argument(
+        "--lookback", type=int, default=None,
+        help="Explicit number of most-recent candles to compute over (overrides --full)",
+    )
     args = parser.parse_args()
 
     load_dotenv()
@@ -202,8 +214,9 @@ async def _cli() -> None:
         raise RuntimeError("DATABASE_URL is not set in environment")
 
     timeframe = normalize_timeframe(args.timeframe)
+    lookback = args.lookback if args.lookback is not None else (10_000_000 if args.full else LOOKBACK_BARS)
     try:
-        written = await calculate_indicators(args.symbol, timeframe)
+        written = await calculate_indicators(args.symbol, timeframe, lookback)
         log.info("done written=%d", written)
         if args.show > 0:
             pool = await init_pool()

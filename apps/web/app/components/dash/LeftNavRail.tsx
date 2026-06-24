@@ -6,6 +6,7 @@ import {
   CandlestickChart,
   BookOpen,
   ShieldCheck,
+  FlaskConical,
   Settings,
   type LucideIcon,
 } from "lucide-react";
@@ -19,6 +20,7 @@ const ITEMS: { href: string; label: string; Icon: LucideIcon }[] = [
   { href: "/trades", label: "Trades", Icon: CandlestickChart },
   { href: "/journal", label: "Journal", Icon: BookOpen },
   { href: "/risk", label: "Risk", Icon: ShieldCheck },
+  { href: "/backtests", label: "Backtest", Icon: FlaskConical },
 ];
 
 export function LeftNavRail({

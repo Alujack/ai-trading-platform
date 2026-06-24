@@ -1,4 +1,5 @@
-import "dotenv/config";
+// Must be first: loads the root .env before any module reads process.env.
+import "./lib/load-env";
 import { buildApp } from "./app";
 import { prisma } from "./lib/prisma";
 import { redis, connectRedis } from "./lib/redis";

@@ -1,13 +1,14 @@
-"""Page Twelve Data backward to build up enough history for EMA200 etc.
+"""Page Twelve Data backward to build deep history for backtesting.
 
 Usage:
-    python backfill_history.py --symbol XAUUSD --timeframe 60min --target 500
+    python backfill_history.py --symbol XAUUSD --timeframe 60min --target 8000
 
-Twelve Data returns up to 100 bars per call (free tier outputsize cap). This
-script pages back using end_date until the DB has at least `target` bars for
-the (symbol, timeframe). Existing rows are upserted so re-running is safe.
+Twelve Data returns up to 5000 bars per call on every plan (incl. free) — at the
+same 1-credit cost as a small request. This script pulls 5000-bar pages, walking
+backward with end_date until the DB holds at least `target` bars (or the provider
+runs out of older history). Existing rows are upserted, so re-running is safe.
 
-Does NOT compute indicators — run indicator_calculator.py afterward.
+Does NOT compute indicators — run `indicator_calculator.py --full` afterward.
 """
 from __future__ import annotations
 
@@ -38,6 +39,10 @@ _TIMEFRAME_STEP: dict[str, timedelta] = {
 # Pause between API calls — Twelve Data free tier is 8 req/min.
 PER_CALL_SLEEP_SECONDS = 8.0
 
+# Bars per request. 5000 is the free-tier max and costs the same one credit as a
+# tiny request, so always pull the full page.
+PAGE_SIZE = 5000
+
 
 async def _current_state(pool, symbol: str, timeframe: str) -> tuple[int, datetime | None]:
     row = await pool.fetchrow(
@@ -56,6 +61,7 @@ async def backfill(symbol: str, timeframe: str, target: int) -> None:
     step = _TIMEFRAME_STEP[timeframe]
 
     pool = await init_pool()
+    prev_oldest: datetime | None = None
     async with httpx.AsyncClient() as client:
         while True:
             count, oldest = await _current_state(pool, symbol, timeframe)
@@ -63,12 +69,18 @@ async def backfill(symbol: str, timeframe: str, target: int) -> None:
             if count >= target:
                 log.info("target reached (%d >= %d), stopping", count, target)
                 return
+            # Stall guard: if the oldest bar didn't move back after a page, the
+            # provider has no more history for this timeframe — stop.
+            if oldest is not None and prev_oldest is not None and oldest >= prev_oldest:
+                log.info("oldest bar did not recede (%s) — provider history exhausted, stopping", oldest)
+                return
+            prev_oldest = oldest
             if oldest is None:
                 # No data yet — call without end_date to get the most recent batch.
                 end = None
             else:
                 end = oldest - step
-            rows = await fetch_candles(client, symbol, timeframe, end_date=end)
+            rows = await fetch_candles(client, symbol, timeframe, end_date=end, output_size=PAGE_SIZE)
             if not rows:
                 log.warning("provider returned 0 rows (end=%s) — stopping", end)
                 return

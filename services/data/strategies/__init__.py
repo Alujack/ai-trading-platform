@@ -5,11 +5,21 @@ Every strategy implements the `Strategy` protocol in `base.py` and emits
 (`POST /api/signals/candidate`), which is the single place AI validation and the
 risk engine run before a signal becomes PENDING.
 """
-from .base import BarWindow, IndicatorBar, RANGING, SignalCandidate, Strategy, TRENDING, VOLATILE
+from .base import (
+    BarWindow,
+    Drawing,
+    IndicatorBar,
+    RANGING,
+    SignalCandidate,
+    Strategy,
+    TRENDING,
+    VOLATILE,
+)
 from .registry import STRATEGY_FACTORIES, build_strategy
 
 __all__ = [
     "BarWindow",
+    "Drawing",
     "IndicatorBar",
     "SignalCandidate",
     "Strategy",
