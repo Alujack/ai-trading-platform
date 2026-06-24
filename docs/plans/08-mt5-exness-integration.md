@@ -169,7 +169,7 @@ MT5_SERVER=Exness-MT5Trial   # demo; Exness-MT5Real for real
 ## 12. Suggested build order (incremental, each shippable)
 
 1. ✅ Phase 2 broker seam (paper-only, no behavior change) + tests — `apps/api/src/execution/broker/` (`types.ts`, `symbols.ts`, `paperBroker.ts`, `exnessBroker.ts`, `index.ts` + 30 tests).
-2. Phase 1 bridge on the Windows VPS; manual demo trade.
+2. ✅ Phase 1 bridge CODE written — `services/mt5bridge/` (`app.py`, `requirements.txt`, `.env.example`, `run.bat`) + Windows setup guide [09-windows-mt5-bridge-setup.md](09-windows-mt5-bridge-setup.md). Pending: run on the Windows host + manual demo trade.
 3. Phase 3 sizing/symbol correctness (also fixes P0b).
 4. Phase 4 wire demo orders behind CONFIRM mode.
 5. Phase 5 reconciliation.
