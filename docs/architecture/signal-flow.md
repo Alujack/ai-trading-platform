@@ -74,7 +74,7 @@ flowchart TB
         RUN["strategy_runner.run_once<br/>(every 15 min)"]
         subgraph STRAT["strategies/ (registry)"]
             ICTD["ICT detectors<br/>ict_sweep_mss / ict_order_block / ict_fvg"]
-            ICTC["ict_confluence (aggregator)<br/>killzone + bias + premium/discount<br/>+ &ge;2 arrays + RR&ge;2"]
+            ICTC["ict_confluence (aggregator)<br/>killzone + bias + premium/discount<br/>+ ≥2 arrays + RR≥2"]
             CLS["close-only<br/>trend_ema / meanrev_rsi / scalp_ema"]
         end
         BT["backtester.py / walkforward.py<br/>(replay -> BacktestRun)"]
@@ -147,11 +147,11 @@ This sequence is the heart of the system: from a freshly-closed candle to a **pe
 sequenceDiagram
     autonumber
     participant Feed as Twelve Data
-    participant W as Worker (main.py)
+    participant W as Worker
     participant DB as TimescaleDB
     participant R as strategy_runner
     participant ICT as ict_confluence
-    participant G as API Gate (gate.ts)
+    participant G as API Gate
     participant AI as services/ai
     participant RE as Risk engine
     participant SSE as SSE /api/stream
@@ -171,7 +171,7 @@ sequenceDiagram
             R-->>R: candidate_gated (skip)
         else regime ok (or UNKNOWN = fail-open)
             R->>ICT: evaluate(BarWindow)
-            Note right of ICT: killzone active? bias aligned?<br/>price in discount/premium?<br/>score = sweep .30 + OB .20 + FVG .20 + OTE .15<br/>require &ge;2 arrays AND score&ge;min AND RR&ge;2
+            Note right of ICT: killzone active? bias aligned?<br/>price in discount/premium?<br/>score = sweep .30 + OB .20 + FVG .20 + OTE .15<br/>require ≥2 arrays AND score≥min AND RR≥2
             ICT-->>R: 0..1 SignalCandidate {entry, sl, tp, reason, drawings[]}
         end
         R->>G: POST /api/signals/candidate (camelCase payload)
@@ -181,17 +181,17 @@ sequenceDiagram
     G->>G: idempotency (clientId already a Signal?) -> skipped
     G->>G: cooldown (recent PENDING/ACTIVE within cooldownMs?) -> skipped
     G->>DB: fetch 50 candles + 10 indicators + upcoming HIGH-impact news
-    alt < 10 candles
+    alt fewer than 10 candles
         G-->>R: {status:"skipped", reason:"insufficient_candles"}
     else enough data
         G->>G: resolveRiskConfig (SYMBOL -> STRATEGY -> GLOBAL)
         G->>AI: POST /analyze/validate-signal {signal, candles, indicators, news}
         AI-->>G: {score, approved, reasoning, concerns}
-        alt score < aiMinScore (default 70)
+        alt score below aiMinScore (default 70)
             G-->>R: {status:"rejected", reason:"ai_score_too_low", score}
         else AI ok
             G->>RE: validateTrade({entry, sl, tp, balance, todayLoss, news, thresholds})
-            Note right of RE: position size = balance*risk% / |entry-sl|<br/>checks: daily-loss, drawdown, RR&ge;minRR, news window
+            Note right of RE: position size = balance*risk% / |entry-sl|<br/>checks: daily-loss, drawdown, RR≥minRR, news window
             RE->>DB: INSERT RiskLog (always, even on reject)
             alt risk not approved
                 RE-->>G: {approved:false, reasons[]}
@@ -231,11 +231,11 @@ Risk approved. Position size 0.01234500 units.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> PENDING: gate approves (AI + risk) -> Signal saved
-    PENDING --> ACTIVE: openPaperTrade() (AUTO, or CONFIRM approved)<br/>Trade(OPEN) created
-    PENDING --> CANCELLED: approval REJECTED or EXPIRED
-    PENDING --> PENDING: mode OFF / breaker / caps -> held_off
-    ACTIVE --> CLOSED: monitorOpenTrades hits TP or SL<br/>P&L recorded + Journal entry
+    [*] --> PENDING: AI + risk approved, Signal saved
+    PENDING --> ACTIVE: openPaperTrade, AUTO or approved CONFIRM
+    PENDING --> CANCELLED: approval rejected or expired
+    PENDING --> PENDING: mode OFF / breaker / caps held
+    ACTIVE --> CLOSED: hit TP or SL, PnL recorded plus Journal
     CANCELLED --> [*]
     CLOSED --> [*]
 ```
@@ -273,14 +273,14 @@ sequenceDiagram
             POL->>TG: requestApproval() -> message + Approve/Reject buttons
             TG->>Sam: alert (entry/SL/TP, RR, size, AI score, reasoning)
             Sam->>TG: tap Approve
-            TG->>PAPER: webhook apv:<id> -> openPaperTrade()
+            TG->>PAPER: webhook apv:ID -> openPaperTrade()
             PAPER->>DB: Signal->ACTIVE, Trade(OPEN)
         end
     end
 
     Note over SCHED,DB: Background loops
     SCHED->>DB: paper */5: reconcilePendingSignals + monitorOpenTrades
-    SCHED->>DB: monitor: price>=TP / <=SL -> Trade(CLOSED) + Signal(CLOSED) + Journal
+    SCHED->>DB: monitor: price≥TP / ≤SL -> Trade(CLOSED) + Signal(CLOSED) + Journal
     SCHED->>TG: expiry */1: stale PENDING approvals -> EXPIRED + Signal(CANCELLED)
     SCHED->>DB: weekly Sun 00:00: journal-review via AI
 ```
@@ -349,9 +349,9 @@ flowchart TD
     ARR --> FV["FVG tap at CE +0.20"]
     ARR --> OT["OTE 0.62-0.79 band +0.15"]
 
-    SW & OB & FV & OT --> SCORE{"score >= min_score (0.40)<br/>AND >= 2 arrays<br/>AND RR >= 2 ?"}
+    SW & OB & FV & OT --> SCORE{"score ≥ min_score 0.40<br/>AND ≥ 2 arrays<br/>AND RR ≥ 2 ?"}
     SCORE -- no --> X3["no signal (skip = correct)"]
-    SCORE -- yes --> EMIT["Emit 1 SignalCandidate<br/>entry = strongest array level<br/>SL = beyond invalidation - buffer*ATR<br/>TP = next opposing liquidity (or 2R)<br/>reason + drawings[]"]
+    SCORE -- yes --> EMIT["Emit 1 SignalCandidate<br/>entry = strongest array level<br/>SL = beyond invalidation minus buffer*ATR<br/>TP = next opposing liquidity or 2R<br/>reason + drawings list"]
     EMIT --> GATE["POST /api/signals/candidate"]
 ```
 
