@@ -10,6 +10,7 @@ Goal: flip the balance as fast as possible by riding trends hard. Claude execute
 ## Core behaviour
 
 - Hold time 10 seconds to 2 minutes. Close the moment a trade is green at $0.50+. Do not micro-close at $0.10–$0.20 — slippage will wipe it.
+- **"Close when blue" is NOT optional.** When float hits $0.50+, close and re-enter. The only exception is a marubozu entry (no wicks, pure body = confirmed momentum) — those can run to TP. All other entries: take the $0.50+ and re-enter. Sitting on profit while waiting for TP is how +$1.15 becomes -$1.62.
 - Trade BOTH directions. Long or short — follow whatever momentum is showing. Never bias toward one side.
 - Trending market means stack trades. When momentum is clearly one direction re-enter immediately after every close. Keep entering as long as the trend holds.
 - Cut losers fast using ACTIVE management (see below) — the SL on the broker is the last-resort backstop only, NOT the normal exit.
@@ -45,9 +46,9 @@ Symbol map from .env BROKER_SYMBOL_MAP: XAUUSD to XAUUSDm, EURUSD to EURUSDm, BT
 CRITICAL: side parameter must be "LONG" or "SHORT" — NOT "buy"/"sell". Bridge checks side.upper() == "LONG".
 
 Every rep:
-1. GET /candles/{symbol}?timeframe=M1&count=10 — read current momentum
+1. GET /candles/{symbol}?timeframe=M1&count=10 — read current momentum. Also fetch enough candles from the session open (count covers session age) to compute VWAP (see VWAP section).
 2. GET /symbol/{symbol} — live bid/ask IMMEDIATELY before every POST /order (price moves 3–5 pts in seconds)
-3. Decide direction. POST /order.
+3. Decide direction — must agree with both M1 trend AND VWAP bias. POST /order.
 4. Monitor every 15–20s: GET /positions + GET /symbol/{symbol}
 5. Float at $0.50+: POST /close, re-enter same direction if trend intact
 6. Two consecutive adverse checks with no recovery: POST /close immediately
@@ -60,10 +61,114 @@ Before entering, confirm at least 2 of these 3:
 - Volume holding or increasing on the momentum candles (not declining)
 - Price breaking cleanly above/below a key level (not just touching and bouncing)
 
+**Range-expansion check (momentum is accelerating, not fading):** the trigger/breakout 1min candle's range (high−low) should exceed EACH of the prior 3 candles' ranges. Expanding range = real thrust; contracting range into your entry = the move is dying and you're buying the top. Exception: if the prior candle was already a blow-off extended candle (huge range right after a 6pt+ run), expansion is exhaustion not thrust — do not enter (this is the "don't chase the extended end" rule in candle form).
+
 Do NOT enter:
 - Into the middle of a choppy alternating UP/DN range
 - When the last 2 candles are opposite directions (wait for clarity)
 - At a support/resistance level that has already been tested 3+ times this session (those levels are about to break)
+- SHORT when 2+ recent candles show significant lower wicks (1.5pt+) at the low zone — those wicks are buyers absorbing supply; a bounce is already in progress and shorting into it puts you on the wrong side of the reversal
+- After a big directional move (6+pts), do NOT enter at the extended end. Wait for a 38–50% pullback. Example: move was 3978→3988 (10pts) — re-entry long should be at 3983–3985, NOT at 3987 (chasing the top). s4-long-7 was a -$1.71 loss from ignoring this.
+- **DO NOT enter on a price zone alone.** Entering at "the 50% level" without a confirmation candle is premature. After a big move and pullback, WAIT for: (a) a lower wick hammer at the zone, AND (b) a subsequent UP candle close above the hammer's open — THEN enter. Pullbacks often overshoot to 60-70% before reversing. s6-long-1 entered at 3973.9 thinking 50% retracement was the floor; pullback continued to 3972.3, -$0.77 loss.
+
+## Setup grade — score every setup A/B/C before entering
+
+Don't treat entry as binary "rules pass / don't pass." Grade the setup first, then let the grade decide conviction AND whether stacking is allowed. Five factors (adapted from a parabolic-momentum scoring model), in priority order:
+
+1. **Trend alignment** — M1 direction, M5 structure, AND VWAP bias all agree (see Trend alignment and VWAP sections). This is the gate: if it fails, the setup is auto-C regardless of the others.
+2. **Acceleration** — candle bodies are growing into the move, not shrinking. Range-expansion check passes.
+3. **Volume** — holding or increasing on the momentum candles.
+4. **Location** — NOT extended (has had a 38–50% pullback after a 6pt+ run), NOT at an S/R tested 3+ times, NOT within 5pts of session high/low. Best case: pullback to VWAP with a confirmation candle.
+5. **Spread/liquidity** — normal session spread. In thin off-session hours the spread eats the $0.50 close target; demand a bigger move or skip.
+
+Grade and action:
+- **A — trend aligned + 4–5 factors green:** full conviction. Eligible for multi-position stacking (per the stacking rules below). Re-enter aggressively while it holds.
+- **B — trend aligned + 2–3 factors green:** single position only. No stacking. Normal close-when-blue.
+- **C — trend fails OR only 0–1 other factors green:** SKIP. This is a wait, not a trade. Most losing entries in past sessions were C setups taken as if they were B.
+
+Arm, then trigger: when location is right but the trigger candle hasn't closed yet, the setup is *armed*, not *entered*. Only enter on the close of the confirmation candle (the range-expansion/momentum candle) — never on the price zone alone. This is the s6-long-1 lesson made into a rule.
+
+## Trend alignment — MOST COMMON CAUSE OF LOSSES
+
+**Before every LONG: check if the M1 is printing lower lows.**
+If M1 has made 3+ successive lower lows (e.g. 3988→3978→3974→3970), the market is in a DOWNTREND. In a downtrend:
+- Hammers are NOT reversals — they are pauses before the next leg down
+- LONGs will be stopped out every time
+- The ONLY profitable trades are SHORTs on bounces to resistance
+
+**Do NOT enter LONG when:**
+- M1 has made 3+ lower lows in the last 10 candles
+- Wait until M5 shows a clear bullish structure (higher high + higher low on M5)
+
+**In a confirmed downtrend: SHORT only.** Look for:
+- Bounce to a recently-broken support (now resistance) — SHORT there
+- Candle touching the underside of the broken level + rejection (upper wick) → SHORT
+
+Example: session 5 — price fell 3991→3988→3978→3974→3970. Every LONG attempt (s5-long-1, s5-long-3, s5-long-4) failed -$2.50 to -$3.00. Every SHORT (s5-sh1, s5-sh2, s5-sh3) made +$0.85 to +$1.62. Trend alignment = everything.
+
+## Trend reversal detection — SWITCH DIRECTION (M5 confirmation required)
+
+A downtrend ends when ALL THREE appear together:
+1. **Lower wick hammer at the session low** (lower wick 1.5pt+) — buyers absorbing at support
+2. **UP marubozu candle immediately after** (body 80%+, volume 300+) — explosive buying
+3. **2+ more UP candles confirming** — new higher highs forming
+
+When this pattern fires, the downtrend IS OVER. Rules update immediately:
+- Do NOT short — the lower wick rule blocks it AND the new uptrend kills it
+- Switch to LONG ONLY on pullbacks
+- The "3+ lower lows = SHORT only" rule is cancelled by this reversal pattern
+
+**CRITICAL: M1-only signals are PULLBACKS, not reversals.** A few M1 candles going opposite direction inside a larger M5 trend is just a normal pullback. Do NOT enter opposite direction on M1 reversal signals alone.
+
+A TRUE reversal (direction change) requires:
+- The M5 candle to CLOSE in the opposite direction with a large body
+- Price making a new structure low/high on M5 (not just M1)
+- At minimum 2 full M5 candles elapsed in the new direction
+
+**What is NOT a reversal:**
+- 2-3 M1 DN candles during an M5 uptrend = PULLBACK, keep LONG bias
+- Brief upper wick on one candle at a new high = normal volatility
+- A 5-10pt dip within a 30+pt trend = normal pullback, NOT reversal
+
+**Example of failed reversal detection (s7-sh1):** M5 uptrend from 3966→4001 (35pts). Price pulled back on M1: 4001→3994 (7pt dip, 2 DN M1 candles). Looked like reversal on M1. Entered SHORT at 3994. Price immediately bounced to 3998 = -$3.45 loss. The M5 uptrend was still intact — this was just a pullback within the trend.
+
+**Example of real reversal (earlier in session):** The session downtrend (3991→3966). Three specific signals appeared simultaneously at the LOW: hammer with 2.58pt lower wick (massive volume 2080), UP marubozu immediately after, then 3+ more UP candles. The M5 confirmed it. That was real.
+
+The same reversal logic applies for uptrend → downtrend: the signal must appear at a MAJOR high, with M5 turning bearish, with volume confirmation.
+
+## Major S/R zone — DO NOT TRADE within 5pts
+
+When price is within 5pts of a major session support or resistance (e.g. the session low/high, a daily S/R, a round number cluster), the market becomes highly volatile and mean-reverting:
+- Longs reverse on bearish wicks; shorts reverse on bullish wicks
+- Entries catch big adverse moves even when direction looks right
+- Every profit gets erased by the next swing
+
+**Rule: Do not enter any directional trade when price is within 5pts of the session low or high.** Wait for a clean break AND a confirmed candle close on the other side, then trade the breakout direction. Do not enter before the break.
+
+Example: session 5 — entering SHORT near 3967-3968 when the session floor is 3962. Only 5-6pts to major support = too close. s5-sh4 filled at 3967.38, price briefly went to 3966.21 (near TP) then reversed 3.6pts to 3969.8. -$1.53 loss.
+
+## VWAP — session bias and pullback entries
+
+VWAP is the volume-weighted average price since the session open. It is the single best objective line for "which side is in control" intraday, and it is the highest-quality pullback-entry zone in a trend. The bridge does NOT return it — compute it from M1 candles.
+
+**Compute it (recompute each rep):**
+1. GET /candles/{symbol}?timeframe=M1&count=N where N covers from the session open (e.g. count=120 for a 2h-old session) — not count=10.
+2. For each candle: typical = (high + low + close) / 3.
+3. VWAP = Σ(typical × volume) / Σ(volume), accumulated across all candles from the session open.
+   - Note: on gold/forex this is TICK volume, not real volume — still a valid intraday reference, just don't treat it as institutional VWAP.
+
+**Bias rule (reinforces Trend alignment, does not override it):**
+- Price clearly above VWAP and VWAP sloping up → long bias only.
+- Price clearly below VWAP and VWAP sloping down → short bias only.
+- Price chopping across a flat VWAP → this is chop, see Choppy market — do not trade.
+
+**Pullback-to-VWAP = A-grade location.** In an uptrend, a pullback that touches VWAP and prints a confirmation candle (lower-wick hammer + UP close) is the highest-quality long entry — tight stop just below VWAP, momentum resuming with you. Mirror for shorts in a downtrend. This upgrades the Location factor in the Setup grade.
+
+**VWAP fail / reclaim as a trend-change tell (confirmation, not a standalone trigger):**
+- In an uptrend, price losing VWAP and a full M1 candle closing below it = momentum weakening; tighten up, stop adding longs. Pair with the M5 reversal rules before flipping short — a single VWAP loss is not a reversal on its own.
+- In a downtrend, price reclaiming VWAP with a strong close = covering shorts, stop adding.
+
+**Do NOT** enter counter-VWAP (long below a down-sloping VWAP, short above an up-sloping one) — that is fighting the session's controlling side, the same mistake as countertrend M1 entries.
 
 ## Choppy market — DO NOT TRADE
 
@@ -83,6 +188,7 @@ When 3+ consecutive candles go same direction, volume holding:
 ## Multiple positions (user-permitted)
 
 User has authorised 5–10 simultaneous positions to flip faster. Rules:
+- ONLY stack on A-grade setups (see Setup grade) — never on B or C
 - ONLY stack multiples on clean momentum breakouts with volume — not at contested S/R zones
 - NEVER stack at a support/resistance level tested 3+ times — it will break and stop all positions at once
 - NEVER stack in a choppy/losing session
@@ -93,8 +199,15 @@ User has authorised 5–10 simultaneous positions to flip faster. Rules:
 ## Sizing
 
 0.01 lots on XAUUSDm = $1 per point. Always 0.01 per position on small accounts.
-SL: 2–4 pts structural (set on order as emergency backstop only — active management exits before it)
-TP: set 4–8 pts, but close actively when float reaches $0.50+
+SL: **MINIMUM 2.5pts on XAUUSDm — never tighter.** Gold moves 2–3pts in 10 seconds; a 0.6pt SL is a guaranteed stop-hunt. s4-long-8 was stopped at -$0.62 with a 0.62pt SL; price then ran 5pts in the correct direction.
+
+**CRITICAL: Verify SL distance AFTER fill, not before.** Price moves 2–4pts during the 2–3 seconds between reading the quote and the fill. If fill price is further from your SL than expected:
+- Calculate: |fill_price - sl| — if < 2.5pts → CLOSE THE POSITION IMMEDIATELY, re-enter with correct SL
+- Do NOT wait and hope. A 1pt SL is a guaranteed stop-hunt.
+- Example: s5-sh5 — expected fill at ~3974.5, actually filled at 3977.332. SL=3978.5 was only 1.168pt away. Should have closed immediately. SL fired within 15 seconds. -$1.17 loss.
+TP: set 4–8 pts, but close actively when float reaches $0.50+ (unless marubozu entry — see Core behaviour)
+
+**TP placement near resistance:** When entry is within 3pt of a known strong resistance, set TP at resistance-0.5 rather than using manual close. Limit orders fill instantly with no slippage; manual close has 2-second delay. At strong resistance, price can reverse 1.5-2pt in those 2 seconds, turning a +$1.40 float into -$0.44 actual. s7-long-4 example: float +$1.42 at bid=3998.4, close executed at 3996.86 (price collapsed 1.5pt during execution at 3999 resistance) = -$0.44 loss.
 
 ## Output format
 
@@ -105,6 +218,7 @@ Session summary: trade count total profit start balance end balance percent
 ## Session stop conditions
 
 - Balance drops below 50% of session open balance: stop, tell user
+- 2 consecutive losses: mandatory pause — read 2 full candles before next entry (do not rush back in)
 - 3 consecutive losses with no wins between them: pause, tell user
 - User says stop: stop
 
