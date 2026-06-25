@@ -22,6 +22,8 @@ The SL set on the order is EMERGENCY ONLY. Never let it be the normal exit. Acti
 
 **Monitor every 15–20 seconds** when in a trade (not 30–60s — gold moves 3–5 pts per minute in volatile sessions).
 
+**IMMEDIATE first check after fill:** Run GET /positions + GET /symbol IMMEDIATELY after the fill confirms (within 10–15 seconds). Do NOT wait for the next loop iteration. s9-long-1: M1 peaked at +$1.065 within 30 seconds of fill — too slow to close = missed the target and closed at -$1.23 instead.
+
 **Two-check adverse rule — close immediately:**
 - Check 1 shows float < -$0.50: acceptable, watch
 - Check 2 shows float worse than check 1 AND no reversal candle forming on 1min: **CLOSE NOW**, do not wait for check 3
@@ -33,6 +35,11 @@ The SL set on the order is EMERGENCY ONLY. Never let it be the normal exit. Acti
 **Reading the recovery candle:**
 - After an adverse move, check the current 1min candle: if it's a bullish engulf or pin bar forming at support = hold through
 - If the current 1min candle is still bearish (for a long) past its midpoint = close now, recovery is not coming this candle
+
+**Upper/lower wick warning while in position:**
+- In a LONG position: if current or last closed M1 candle has uw ≥ 1.5pt (sellers absorbing at top) → close for whatever profit/loss exists. Do not wait for $0.50 target. Price is being rejected.
+- In a SHORT position: if current or last closed M1 candle has lw ≥ 1.5pt (buyers absorbing at bottom) → close immediately.
+- s11-long-3: held through M1[1] 07:11 uw=1.60pt (clear seller rejection signal) → next M1[2] was MARU 88% bearish → −$3.41. Close on the wick, not after the MARU.
 
 **Why this matters:**
 - In session 3 (2026-06-25): LONG at 3985.39 showed -$0.43 then -$1.09 across two checks. Both checks showed price declining, no recovery candle. The correct action was close at the -$1.09 check. Instead I waited and the SL fired at -$2.91. That 2× difference in loss is the entire gap between a profitable session and a blown one.
@@ -71,6 +78,34 @@ Do NOT enter:
 - After a big directional move (6+pts), do NOT enter at the extended end. Wait for a 38–50% pullback. Example: move was 3978→3988 (10pts) — re-entry long should be at 3983–3985, NOT at 3987 (chasing the top). s4-long-7 was a -$1.71 loss from ignoring this.
 - **DO NOT enter on a price zone alone.** Entering at "the 50% level" without a confirmation candle is premature. After a big move and pullback, WAIT for: (a) a lower wick hammer at the zone, AND (b) a subsequent UP candle close above the hammer's open — THEN enter. Pullbacks often overshoot to 60-70% before reversing. s6-long-1 entered at 3973.9 thinking 50% retracement was the floor; pullback continued to 3972.3, -$0.77 loss.
 
+## Forming candle trap — do NOT read a candle as closed until its volume settles
+
+When the bridge API returns candle data, the "close" for the most recent candle is the CURRENT TICK PRICE, not the final close — the candle is still forming. Reading a forming candle's current close as the final close is a fatal error.
+
+**Volume check before trusting a candle close:**
+- For M5 on XAUUSDm: average completed candle volume is 800–1500 ticks
+- If the current (newest) candle shows volume < 60% of recent-candle average, it is STILL FORMING
+- When forming: C = current bid, NOT the final close. Do not act on it as if closed.
+- Same rule applies to M1: a 1min candle with volume < 50 is just getting started
+
+**The safe check:** before entering on any candle signal, verify the candle is CLOSED by seeing that the NEXT candle has already started (the prior candle's volume has stopped increasing across two consecutive scans).
+
+**Bounce reversal SHORT timing:** When planning to SHORT a bounce inside a downtrend, the bounce M5 candle MUST have CLOSED before entering the reversal SHORT. Do NOT enter mid-bounce even if M1 shows early reversal signs (DN candle at the bounce high). M5 bounces routinely run 5–8 more pts after the first M1 reversal sign. Wait for the M5 close to confirm exhaustion (small body, upper wick near high). s11-short-1: entered SHORT mid-bounce when M5[4] had only 39% of avg volume (still forming). Bounce continued, closed at -$0.99.
+
+**s9-long-3 example:** Scanned M5[4] and saw C=3998.141 with vol=891. Treated it as a confirmed breakout above 3997.587 resistance → entered LONG. The candle was still forming; it eventually closed at 3997.104 (a doji, NOT a breakout). The immediate next M5 candle reversed hard → -$2.70 loss.
+
+## M5 breakout double-confirmation rule (s9-long-3)
+
+After an M5 candle CLOSES above a resistance level (or below a support):
+- That candle = **ARM** — the signal exists but the trigger has NOT fired
+- Do NOT enter immediately on the close of the breakout candle
+- Wait for the NEXT M5 candle to open AND show the same direction (first 1–2 M1 candles inside the new M5 period are also bullish/bearish)
+- Only enter when the new M5 candle's first M1 candle confirms direction
+
+**Why:** The breakout M5 candle can end with a wick (fake breakout at resistance, body actually closes below the level). The next M5 candle opening in the same direction = confirmation that the break is real. M5 MARU DN or UP after a breakout candle = double confirmation = enter.
+
+**s9-long-3 example:** M5 closed above 3997.587 at 3997.104 (looked like breakout). Without waiting for M5[next] confirmation, entered LONG. M5[next] immediately reversed bearish → entered at the top → -$2.70 loss. If had waited for M5[next] first M1 candle to show UP intent, would have seen it reverse immediately and not entered.
+
 ## Setup grade — score every setup A/B/C before entering
 
 Don't treat entry as binary "rules pass / don't pass." Grade the setup first, then let the grade decide conviction AND whether stacking is allowed. Five factors (adapted from a parabolic-momentum scoring model), in priority order:
@@ -105,6 +140,14 @@ If M1 has made 3+ successive lower lows (e.g. 3988→3978→3974→3970), the ma
 - Candle touching the underside of the broken level + rejection (upper wick) → SHORT
 
 Example: session 5 — price fell 3991→3988→3978→3974→3970. Every LONG attempt (s5-long-1, s5-long-3, s5-long-4) failed -$2.50 to -$3.00. Every SHORT (s5-sh1, s5-sh2, s5-sh3) made +$0.85 to +$1.62. Trend alignment = everything.
+
+**M5 MARU chain = exclusive SHORT-on-bounces bias:**
+When 2+ consecutive M5 candles close as bearish MARU (body ≥ 82%), the market is in an aggressive institutional sell-off. Bias shifts to SHORT ONLY:
+- Do NOT LONG dips — price will continue down and stop you out
+- SHORT every bounce to the most recent broken support level (now resistance)
+- The bounce SHORT entry requires the bounce M5 candle to have CLOSED (see Forming candle trap — bounce reversal timing)
+- Stay SHORT-biased until: a hammer at a major low (1.5pt+ lower wick) followed by a UP MARU — only then consider LONGs
+- s10 session: two consecutive M5 MARUs (M5[2]=83%, M5[3]=91%) → kept LONGing into the downtrend (s10-long-3 −$1.07, s10-long-4 −$1.00). The correct play was SHORT-on-bounces the entire time.
 
 ## Trend reversal detection — SWITCH DIRECTION (M5 confirmation required)
 
@@ -205,9 +248,26 @@ SL: **MINIMUM 2.5pts on XAUUSDm — never tighter.** Gold moves 2–3pts in 10 s
 - Calculate: |fill_price - sl| — if < 2.5pts → CLOSE THE POSITION IMMEDIATELY, re-enter with correct SL
 - Do NOT wait and hope. A 1pt SL is a guaranteed stop-hunt.
 - Example: s5-sh5 — expected fill at ~3974.5, actually filled at 3977.332. SL=3978.5 was only 1.168pt away. Should have closed immediately. SL fired within 15 seconds. -$1.17 loss.
+
+**2.5pt threshold is a hard CLOSE, not a soft warning.** Even if the position is +$0.42 at time of check, if |fill − SL| < 2.5pt: CLOSE. The SL distance erodes as fast as the profit builds, and a 2.5pt adverse spike always arrives faster than your monitoring interval. s11-short-3: fill at 3986.497, SL at 3989.0 → distance 2.503pt (0.003pt above threshold). Held because "technically passes". 10 seconds later, 2.5pt spike → SL hit → −$2.50. Close-and-re-enter at 2.5pt is the only safe action.
+
+**If bid/ask moves significantly (>1pt) between your decision and the fill:** After fill, the SL you pre-calculated is stale. Recalculate: SHORT SL must be fill + 4pt minimum; LONG SL must be fill − 4pt minimum. If pre-set SL violates this: CLOSE IMMEDIATELY and re-enter with correct SL at the new price. s11-short-3: decided at bid=3984, set SL=3989.0 (5pt buffer). Fill came at 3986.5 (bid moved 3pt during execution). SL distance = 2.5pt. Should have recalculated on fill and closed immediately.
 TP: set 4–8 pts, but close actively when float reaches $0.50+ (unless marubozu entry — see Core behaviour)
 
 **TP placement near resistance:** When entry is within 3pt of a known strong resistance, set TP at resistance-0.5 rather than using manual close. Limit orders fill instantly with no slippage; manual close has 2-second delay. At strong resistance, price can reverse 1.5-2pt in those 2 seconds, turning a +$1.40 float into -$0.44 actual. s7-long-4 example: float +$1.42 at bid=3998.4, close executed at 3996.86 (price collapsed 1.5pt during execution at 3999 resistance) = -$0.44 loss.
+
+**Volatile zone SL buffer rule (s8-sh2, s8-long-1, s10-long-3):** When the session is whipsawing 2-3pts/min (multiple big-range M1 candles visible), execution fills can arrive 1-2pt worse than decision-time price. Use structural SL, not fill-based SL:
+- Formula: SL = structural_level − 4.0pt for LONG (structural_level + 4.0pt for SHORT)
+  where structural_level = prior support candle's low (for LONG) or prior resistance candle's high (for SHORT)
+- The 4pt margin = 2.5pt minimum clearance + 1.5pt execution slippage buffer
+- Example: support candle low = 3994.9 → SL = 3994.9 − 4.0 = 3990.9. If fill comes at 3993.5, |3993.5 − 3990.9| = 2.6pt ✓ passes post-fill check
+- Compare to wrong approach: SL = expected_fill(3995.8) − 2.5 = 3993.3 → actual fill 3993.989 → |3993.989 − 3993.3| = 0.689pt ✗ fails post-fill check → emergency close
+
+**Minimum SL expressed as ask/bid (quick floor check):**
+- LONG: SL ≤ ask_at_order_time − 4.0pt. Never place SL tighter than this regardless of structure.
+- SHORT: SL ≥ bid_at_order_time + 4.0pt. Never place SL tighter than this regardless of structure.
+- s10-long-2: ask=3989.08 at order time, SL=3987.0 → |3989.379_fill − 3987.0| = 2.379pt < 2.5pt → emergency close
+- s10-long-3: ask was dropping DURING execution, fill came in at 3988.894 (1.5pt below observed ask). SL=3987.3 → distance 1.594pt → emergency close at −$1.07. Fix: the 4pt minimum from ask captures slippage automatically.
 
 ## Output format
 
