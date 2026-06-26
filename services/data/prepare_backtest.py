@@ -61,20 +61,44 @@ async def _prepare(symbols: list[str], timeframes: list[str], target: int,
         await close_pool()
 
 
+_HERE = os.path.dirname(os.path.abspath(__file__))
+
+
 def _run_backtest(strategies: list[str], symbols: list[str], timeframes: list[str],
                   risk: float, out: str | None) -> int:
-    """Hand off to backtester.py (single source of truth for backtest logic)."""
+    """Hand off to backtester.py (single source of truth for in-sample backtest)."""
+    # backtester.py takes nargs="*" (space-separated), NOT csv.
     cmd = [
         sys.executable, "backtester.py",
-        "--strategies", ",".join(strategies),
-        "--symbols", ",".join(symbols),
-        "--timeframes", ",".join(timeframes),
+        "--strategies", *strategies,
+        "--symbols", *symbols,
+        "--timeframes", *timeframes,
         "--risk", str(risk),
     ]
     if out:
         cmd += ["--out", out]
     log.info("backtest: %s", " ".join(cmd))
-    return subprocess.call(cmd, cwd=os.path.dirname(os.path.abspath(__file__)))
+    return subprocess.call(cmd, cwd=_HERE)
+
+
+def _run_walkforward(strategies: list[str], symbols: list[str], timeframes: list[str],
+                     risk: float, is_bars: int, oos_bars: int, out: str | None) -> int:
+    """Hand off to walkforward.py for out-of-sample validation. It optimises params
+    on each in-sample window and reports the concatenated OOS track record — the
+    honest estimate of live behaviour. Note: --strategy (singular), nargs="*"."""
+    cmd = [
+        sys.executable, "walkforward.py",
+        "--strategy", *strategies,
+        "--symbols", *symbols,
+        "--timeframes", *timeframes,
+        "--risk", str(risk),
+        "--is-bars", str(is_bars),
+        "--oos-bars", str(oos_bars),
+    ]
+    if out:
+        cmd += ["--out", out]
+    log.info("walk-forward: %s", " ".join(cmd))
+    return subprocess.call(cmd, cwd=_HERE)
 
 
 def main() -> None:
@@ -96,6 +120,12 @@ def main() -> None:
     parser.add_argument("--skip-backfill", action="store_true", help="Only recompute indicators + backtest")
     parser.add_argument("--skip-indicators", action="store_true", help="Skip the indicator recompute step")
     parser.add_argument("--no-backtest", action="store_true", help="Prepare data only; don't backtest")
+    parser.add_argument("--walkforward", action="store_true",
+                        help="After the in-sample backtest, also run walk-forward (out-of-sample) validation")
+    parser.add_argument("--is-bars", type=int, default=1000, dest="is_bars",
+                        help="Walk-forward in-sample window (bars); needs is-bars+oos-bars per fold")
+    parser.add_argument("--oos-bars", type=int, default=300, dest="oos_bars",
+                        help="Walk-forward out-of-sample window (bars)")
     args = parser.parse_args()
 
     load_dotenv()
@@ -116,7 +146,14 @@ def main() -> None:
     if args.no_backtest:
         log.info("data prepared; --no-backtest set, stopping")
         return
+
     code = _run_backtest(strategies, symbols, timeframes, args.risk, args.out)
+    if args.walkforward:
+        wf_out = os.path.join(args.out, "walkforward") if args.out else None
+        wf_code = _run_walkforward(
+            strategies, symbols, timeframes, args.risk, args.is_bars, args.oos_bars, wf_out,
+        )
+        code = code or wf_code  # non-zero if either step failed
     raise SystemExit(code)
 
 

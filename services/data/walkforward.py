@@ -61,6 +61,15 @@ PARAM_GRIDS: dict[str, dict[str, list]] = {
         "minScore": [0.40, 0.50, 0.65],
         "atrBuffer": [0.3, 0.5],
     },
+    # scalp_vwap: only knobs that act on already-computed values (ATR frame +
+    # ATR-unit location guards) — no indicator recompute. The stop/target frame
+    # and how far from VWAP we'll chase are the live decisions walk-forward should
+    # stress, since those drove the manual-trading P&L swings.
+    "scalp_vwap": {
+        "atrStopMult": [1.0, 1.5, 2.0],
+        "atrTargetMult": [2.0, 3.0, 4.0],
+        "maxExtAtr": [1.5, 2.0, 2.5],
+    },
 }
 DEFAULT_STRATEGIES = ["trend_ema", "meanrev_rsi"]
 DEFAULT_TIMEFRAMES = ["60min"]
@@ -223,6 +232,16 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    # Report uses →/± and box glyphs; force UTF-8 so Windows cp1252 consoles don't
+    # crash on print (matches backtester.py / prepare_backtest.py).
+    import sys
+
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+        except Exception:
+            pass
+
     load_dotenv()
     logging.basicConfig(
         level=os.environ.get("LOG_LEVEL", "info").upper(),
