@@ -241,6 +241,17 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    # The report uses box-drawing + em-dash glyphs; Windows consoles default to
+    # cp1252 and raise UnicodeEncodeError on them. Force UTF-8 so `python
+    # backtester.py` works without setting PYTHONUTF8=1.
+    import sys
+
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+        except Exception:
+            pass
+
     load_dotenv()
     logging.basicConfig(
         level=os.environ.get("LOG_LEVEL", "info").upper(),

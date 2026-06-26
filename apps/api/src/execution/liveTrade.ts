@@ -175,6 +175,7 @@ async function reviewLiveClose(args: {
   rMultiple: number;
   openedAt: Date;
   closedAt: Date;
+  exitReason: string;
 }): Promise<TradeReviewResponse | null> {
   try {
     const res = await fetch(`${AI_SERVICE_URL}/analyze/trade-review`, {
@@ -191,7 +192,7 @@ async function reviewLiveClose(args: {
           exitPrice: args.exitPrice,
           profitLoss: args.profitLoss,
           rMultiple: args.rMultiple,
-          exitReason: "broker_close",
+          exitReason: args.exitReason,
           openedAt: args.openedAt.toISOString(),
           closedAt: args.closedAt.toISOString(),
           plannedReasoning: args.aiReasoning,
@@ -206,6 +207,90 @@ async function reviewLiveClose(args: {
   } catch {
     return null;
   }
+}
+
+/** A trade row with its parent signal — the shape both the reconciler and the
+ *  fast scalp manager hold when they record a close. */
+export type LiveTradeWithSignal = Prisma.TradeGetPayload<{ include: { signal: true } }>;
+
+/**
+ * Record a closed live trade: write Trade.CLOSED + flip the Signal + create the
+ * Journal entry (with an AI grade), and publish the realtime event. Shared by the
+ * 5-min reconciler (`exitReason="broker_close"` — SL/TP/manual close) and the fast
+ * scalp manager (`exitReason="two_check_adverse"`, `"unsafe_stop"`, …), so every
+ * close is journaled identically regardless of who closed it.
+ */
+export async function finalizeLiveClose(
+  trade: LiveTradeWithSignal,
+  exitPrice: number,
+  realizedProfit: number,
+  exitReason: string,
+): Promise<{ outcome: string; rMultiple: number }> {
+  const sig = trade.signal;
+  const entry = num(trade.entryPrice);
+  const riskAmount = num(trade.riskAmount);
+  const lots = num(trade.positionSize);
+  const rMultiple = riskAmount > 0 ? realizedProfit / riskAmount : 0;
+  const outcome = realizedProfit > 0 ? "WIN" : realizedProfit < 0 ? "LOSS" : "BREAKEVEN";
+  const closedAt = new Date();
+  const ticket = trade.externalOrderId ?? "?";
+
+  const review = await reviewLiveClose({
+    symbol: sig.symbol,
+    direction: sig.direction,
+    timeframe: sig.timeframe,
+    strategyName: sig.strategyName,
+    aiReasoning: sig.aiReasoning,
+    entryPrice: entry,
+    stopLoss: num(sig.stopLoss),
+    takeProfit: num(sig.takeProfit),
+    exitPrice,
+    profitLoss: realizedProfit,
+    rMultiple,
+    openedAt: trade.openedAt,
+    closedAt,
+    exitReason,
+  });
+
+  const notes =
+    `Live close (${exitReason}). ${sig.direction} ${sig.symbol} ${sig.timeframe}. ` +
+    `Outcome: ${outcome}. Entry ${entry.toFixed(5)} → Exit ${exitPrice.toFixed(5)}. ` +
+    `Lots ${lots.toFixed(4)}, P&L $${realizedProfit.toFixed(2)}, R ${rMultiple.toFixed(2)}. ` +
+    `MT5 ticket #${ticket}.`;
+
+  const aiReview = review
+    ? `Grade ${review.grade} (${review.outcome}). ${review.why} ` +
+      `Worked: ${review.whatWorked.join("; ") || "—"}. ` +
+      `Failed: ${review.whatFailed.join("; ") || "—"}. ` +
+      `Lesson: ${review.lesson}`
+    : "(per-trade AI review unavailable at live close)";
+
+  await prisma.$transaction([
+    prisma.trade.update({
+      where: { id: trade.id },
+      data: {
+        exitPrice: exitPrice.toFixed(8),
+        profitLoss: realizedProfit.toFixed(2),
+        status: "CLOSED",
+        closedAt,
+      },
+    }),
+    prisma.signal.update({ where: { id: sig.id }, data: { status: "CLOSED" } }),
+    prisma.journal.create({
+      data: {
+        tradeId: trade.id,
+        notes,
+        aiReview,
+        grade: review?.grade ?? null,
+        outcome,
+        lesson: review?.lesson ?? null,
+        rMultiple: rMultiple.toFixed(4),
+      },
+    }),
+  ]);
+
+  void publishEvent({ type: "trade", symbol: sig.symbol });
+  return { outcome, rMultiple };
 }
 
 /**
@@ -266,71 +351,15 @@ export async function monitorLiveTrades(): Promise<MonitorSummary> {
     }
 
     const sig = trade.signal;
-    const entry = num(trade.entryPrice);
-    const riskAmount = num(trade.riskAmount);
-    const lots = num(trade.positionSize);
-    const rMultiple = riskAmount > 0 ? realizedProfit / riskAmount : 0;
-    const outcome = realizedProfit > 0 ? "WIN" : realizedProfit < 0 ? "LOSS" : "BREAKEVEN";
-    const closedAt = new Date();
-
-    const review = await reviewLiveClose({
-      symbol: sig.symbol,
-      direction: sig.direction,
-      timeframe: sig.timeframe,
-      strategyName: sig.strategyName,
-      aiReasoning: sig.aiReasoning,
-      entryPrice: entry,
-      stopLoss: num(sig.stopLoss),
-      takeProfit: num(sig.takeProfit),
+    const { outcome, rMultiple } = await finalizeLiveClose(
+      trade,
       exitPrice,
-      profitLoss: realizedProfit,
-      rMultiple,
-      openedAt: trade.openedAt,
-      closedAt,
-    });
-
-    const notes =
-      `Live close reconciled by MT5 bridge. ${sig.direction} ${sig.symbol} ${sig.timeframe}. ` +
-      `Outcome: ${outcome}. Entry ${entry.toFixed(5)} → Exit ${exitPrice.toFixed(5)}. ` +
-      `Lots ${lots.toFixed(4)}, P&L $${realizedProfit.toFixed(2)}, R ${rMultiple.toFixed(2)}. ` +
-      `MT5 ticket #${ticket}.`;
-
-    const aiReview = review
-      ? `Grade ${review.grade} (${review.outcome}). ${review.why} ` +
-        `Worked: ${review.whatWorked.join("; ") || "—"}. ` +
-        `Failed: ${review.whatFailed.join("; ") || "—"}. ` +
-        `Lesson: ${review.lesson}`
-      : "(per-trade AI review unavailable at live close)";
-
-    await prisma.$transaction([
-      prisma.trade.update({
-        where: { id: trade.id },
-        data: {
-          exitPrice: exitPrice.toFixed(8),
-          profitLoss: realizedProfit.toFixed(2),
-          status: "CLOSED",
-          closedAt,
-        },
-      }),
-      prisma.signal.update({ where: { id: sig.id }, data: { status: "CLOSED" } }),
-      prisma.journal.create({
-        data: {
-          tradeId: trade.id,
-          notes,
-          aiReview,
-          grade: review?.grade ?? null,
-          outcome,
-          lesson: review?.lesson ?? null,
-          rMultiple: rMultiple.toFixed(4),
-        },
-      }),
-    ]);
-
-    void publishEvent({ type: "trade", symbol: sig.symbol });
+      realizedProfit,
+      "broker_close",
+    );
     console.log(
       `[liveTrade] reconciled close trade=${trade.id} ${sig.symbol} ticket=${ticket} ` +
-        `${outcome} pnl=$${realizedProfit.toFixed(2)} R=${rMultiple.toFixed(2)} ` +
-        `grade=${review?.grade ?? "n/a"}`,
+        `${outcome} pnl=$${realizedProfit.toFixed(2)} R=${rMultiple.toFixed(2)}`,
     );
     closed++;
   }

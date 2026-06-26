@@ -48,6 +48,7 @@ async def load_bars(
     sql = f"""
         SELECT c."timestamp" AS ts,
                c."open" AS open, c."high" AS high, c."low" AS low, c."close" AS close,
+               c."volume" AS volume,
                i."rsi" AS rsi, i."ema20" AS ema20, i."ema50" AS ema50,
                i."ema200" AS ema200, i."atr" AS atr
         FROM "Candle" c
@@ -66,6 +67,7 @@ async def load_bars(
             high=_dec(r["high"]),       # type: ignore[arg-type]
             low=_dec(r["low"]),         # type: ignore[arg-type]
             close=_dec(r["close"]),     # type: ignore[arg-type]
+            volume=_dec(r["volume"]),
             rsi=_dec(r["rsi"]),
             ema20=_dec(r["ema20"]),
             ema50=_dec(r["ema50"]),

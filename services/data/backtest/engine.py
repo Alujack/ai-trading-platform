@@ -51,6 +51,7 @@ class Bar:
     ema50: Decimal | None = None
     ema200: Decimal | None = None
     atr: Decimal | None = None
+    volume: Decimal | None = None  # needed by volume-aware strategies (e.g. scalp_vwap's VWAP)
 
     def to_indicator_bar(self) -> IndicatorBar:
         return IndicatorBar(
@@ -64,6 +65,7 @@ class Bar:
             open=self.open,
             high=self.high,
             low=self.low,
+            volume=self.volume,
         )
 
 

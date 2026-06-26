@@ -1,7 +1,9 @@
 asyncpg>=0.29.0
 httpx>=0.27.0
 python-dotenv>=1.0.1
-pandas>=2.0.0
+# 2.2.2+ is the first pandas built against numpy 2.x; older 2.0.x crashes at import
+# with "numpy.dtype size changed" when numpy>=2 is installed.
+pandas>=2.2.2
 # pandas-ta indicators — using the maintained fork (drop-in replacement for the
 # abandoned `pandas-ta` PyPI package; import as `pandas_ta_classic`).
 pandas-ta-classic>=0.4

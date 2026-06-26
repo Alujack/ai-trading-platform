@@ -1,6 +1,7 @@
 import cron, { type ScheduledTask } from "node-cron";
 import { reconcilePendingSignals } from "./executionPolicy";
 import { monitorLiveTrades } from "./liveTrade";
+import { runScalpManagementTick } from "./scalpManager";
 import { monitorOpenTrades, runWeeklyJournalReview } from "./paperTrading";
 import { runDailyBriefing } from "./dailyBriefing";
 import { expireStaleApprovals } from "../telegram/approvals";
@@ -9,16 +10,25 @@ function isLiveBroker(): boolean {
   return (process.env.BROKER ?? "paper").trim().toLowerCase() === "exness";
 }
 
+/** The fast scalp-management loop is opt-in: it only runs live and only when
+ *  explicitly enabled, so the 5-min reconciler stays the default everywhere else. */
+function scalpManagerEnabled(): boolean {
+  return (process.env.ENABLE_SCALP_MANAGER ?? "false").trim().toLowerCase() === "true";
+}
+
 const PAPER_CRON = "*/5 * * * *";
+const SCALP_CRON = "*/15 * * * * *"; // every 15s — scalps need active management, not the 5-min loop
 const WEEKLY_CRON = "0 0 * * 0"; // Sunday 00:00 UTC
 const DAILY_CRON = "0 6 * * *"; // 06:00 UTC — morning briefing before the session
 const EXPIRY_CRON = "* * * * *"; // every minute — approvals are perishable
 
 let paperTask: ScheduledTask | null = null;
+let scalpTask: ScheduledTask | null = null;
 let weeklyTask: ScheduledTask | null = null;
 let dailyTask: ScheduledTask | null = null;
 let expiryTask: ScheduledTask | null = null;
 let paperRunning = false;
+let scalpRunning = false;
 let weeklyRunning = false;
 let dailyRunning = false;
 let expiryRunning = false;
@@ -53,6 +63,24 @@ async function runPaperTick(): Promise<void> {
   } finally {
     paperRunning = false;
     console.log(`[paperCron] ${new Date().toISOString()} run_end`);
+  }
+}
+
+async function runScalpTick(): Promise<void> {
+  if (scalpRunning) return; // a prior tick (e.g. one that closed + journaled) is still running
+  scalpRunning = true;
+  try {
+    const r = await runScalpManagementTick();
+    if (r.closed > 0) {
+      console.log(
+        `[scalpManager] ${new Date().toISOString()} managed=${r.managed} closed=${r.closed} held=${r.held} gone=${r.gone}`,
+      );
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[scalpManager] ${new Date().toISOString()} error="${msg}"`);
+  } finally {
+    scalpRunning = false;
   }
 }
 
@@ -121,6 +149,12 @@ export function startPaperTradingScheduler(): void {
       void runExpiryTick();
     });
   }
+  if (!scalpTask && isLiveBroker() && scalpManagerEnabled()) {
+    console.log(`[scalpManager] scheduled "${SCALP_CRON}"`);
+    scalpTask = cron.schedule(SCALP_CRON, () => {
+      void runScalpTick();
+    });
+  }
 }
 
 export function startWeeklyReviewScheduler(): void {
@@ -150,6 +184,11 @@ export function stopExecutionSchedulers(): void {
     paperTask = null;
     console.log("[paperCron] stopped");
   }
+  if (scalpTask) {
+    scalpTask.stop();
+    scalpTask = null;
+    console.log("[scalpManager] stopped");
+  }
   if (weeklyTask) {
     weeklyTask.stop();
     weeklyTask = null;
@@ -164,6 +203,10 @@ export function stopExecutionSchedulers(): void {
 
 export async function runPaperTradingOnce(): Promise<void> {
   await runPaperTick();
+}
+
+export async function runScalpManagementOnce(): Promise<void> {
+  await runScalpTick();
 }
 
 export async function runWeeklyReviewOnce(): Promise<void> {
