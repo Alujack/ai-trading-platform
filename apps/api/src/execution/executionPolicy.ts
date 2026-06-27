@@ -90,6 +90,16 @@ async function portfolioCapBlock(signal: Signal): Promise<string | null> {
   const cfg = await resolveRiskConfig(signal.strategyName, signal.symbol);
   const { accountBalance } = readAccount();
 
+  // Sticky rule: one trade per day, then stop. Count every trade opened since
+  // 00:00 UTC regardless of status (an open OR already-closed trade still uses
+  // up the day's single shot). New UTC day → fresh setup allowed.
+  const startOfDay = new Date();
+  startOfDay.setUTCHours(0, 0, 0, 0);
+  const openedToday = await prisma.trade.count({ where: { openedAt: { gte: startOfDay } } });
+  if (openedToday >= cfg.maxTradesPerDay) {
+    return `daily trade limit reached (${openedToday}/${cfg.maxTradesPerDay}) — stopped for today`;
+  }
+
   const open = await prisma.trade.findMany({
     where: { status: "OPEN" },
     include: { signal: { select: { symbol: true } } },

@@ -11,6 +11,7 @@ export interface EffectiveRiskConfig {
   dailyLossLimitPct: number;
   maxDrawdownPct: number;
   maxOpenTrades: number;
+  maxTradesPerDay: number;
   maxOpenRiskPct: number;
   maxRiskPerCurrencyPct: number;
   newsBeforeMin: number;
@@ -24,7 +25,12 @@ export const RISK_DEFAULTS: EffectiveRiskConfig = {
   minRR: 2,
   dailyLossLimitPct: 3,
   maxDrawdownPct: 10,
-  maxOpenTrades: Number(process.env.PAPER_MAX_OPEN_TRADES ?? "5"),
+  // Sticky rule: one trade at a time. Risk 1% to make 2% (riskPerTradePct=1,
+  // minRR=2). Override per env if you ever want concurrency back.
+  maxOpenTrades: Number(process.env.PAPER_MAX_OPEN_TRADES ?? "1"),
+  // Sticky rule: ONE trade per day, then stop. Once a trade has been opened
+  // today (win or lose), no new trade is taken until the next UTC day.
+  maxTradesPerDay: Number(process.env.MAX_TRADES_PER_DAY ?? "1"),
   maxOpenRiskPct: 5,
   // All instruments here are USD-quoted, so a tight per-currency cap throttles
   // everything at once. Keep it level with the open-risk cap by default.
@@ -42,6 +48,7 @@ export const RISK_BOUNDS: Record<keyof EffectiveRiskConfig, { min: number; max: 
   dailyLossLimitPct: { min: 0.1, max: 50 },
   maxDrawdownPct: { min: 0.1, max: 100 },
   maxOpenTrades: { min: 1, max: 100, int: true },
+  maxTradesPerDay: { min: 1, max: 100, int: true },
   maxOpenRiskPct: { min: 0.1, max: 100 },
   maxRiskPerCurrencyPct: { min: 0.1, max: 100 },
   newsBeforeMin: { min: 0, max: 240, int: true },

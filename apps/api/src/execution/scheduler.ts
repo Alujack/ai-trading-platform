@@ -4,6 +4,7 @@ import { monitorLiveTrades } from "./liveTrade";
 import { runScalpManagementTick } from "./scalpManager";
 import { monitorOpenTrades, runWeeklyJournalReview } from "./paperTrading";
 import { runDailyBriefing } from "./dailyBriefing";
+import { sendDailyNewsBrief } from "./newsBrief";
 import { expireStaleApprovals } from "../telegram/approvals";
 
 function isLiveBroker(): boolean {
@@ -14,6 +15,11 @@ function isLiveBroker(): boolean {
  *  explicitly enabled, so the 5-min reconciler stays the default everywhere else. */
 function scalpManagerEnabled(): boolean {
   return (process.env.ENABLE_SCALP_MANAGER ?? "false").trim().toLowerCase() === "true";
+}
+
+/** The morning Telegram news brief is on by default; set ENABLE_NEWS_BRIEF=false to mute it. */
+function newsBriefEnabled(): boolean {
+  return (process.env.ENABLE_NEWS_BRIEF ?? "true").trim().toLowerCase() !== "false";
 }
 
 const PAPER_CRON = "*/5 * * * *";
@@ -105,7 +111,7 @@ async function runWeeklyTick(): Promise<void> {
   }
 }
 
-async function runDailyTick(): Promise<void> {
+async function runDailyTick(notify: boolean = true): Promise<void> {
   if (dailyRunning) {
     console.log(`[dailyBriefingCron] ${new Date().toISOString()} prev_run_in_progress, skipping`);
     return;
@@ -113,6 +119,14 @@ async function runDailyTick(): Promise<void> {
   dailyRunning = true;
   try {
     await runDailyBriefing();
+    // Push the morning news brief to Telegram on the scheduled run only — not on
+    // the startup-once pass, so restarts don't spam the chat.
+    if (notify && newsBriefEnabled()) {
+      const r = await sendDailyNewsBrief();
+      console.log(
+        `[newsBrief] ${new Date().toISOString()} sent=${r.sent}${r.reason ? ` reason=${r.reason}` : ""}`,
+      );
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[dailyBriefingCron] ${new Date().toISOString()} error="${msg}"`);
@@ -214,5 +228,10 @@ export async function runWeeklyReviewOnce(): Promise<void> {
 }
 
 export async function runDailyBriefingOnce(): Promise<void> {
-  await runDailyTick();
+  await runDailyTick(false); // recompute the briefing on startup, but don't ping Telegram
+}
+
+/** On-demand: build and push the news brief to Telegram now (e.g. a manual route). */
+export async function sendNewsBriefOnce(): Promise<{ sent: boolean; reason?: string }> {
+  return sendDailyNewsBrief();
 }
