@@ -74,6 +74,20 @@ export class ExnessBroker implements Broker {
     }
   }
 
+  /**
+   * Log the bridge's MT5 terminal into an account at runtime, using creds the
+   * user set in the UI (instead of the bridge's own .env). Never throws — returns
+   * a {ok, detail} verdict so the settings UI can show pass/fail.
+   */
+  async login(creds: { login: number; password: string; server: string }): Promise<{ ok: boolean; detail: string }> {
+    try {
+      const r = await this.call<{ ok: boolean; detail?: string }>("/session/login", "POST", creds);
+      return { ok: !!r.ok, detail: r.detail ?? (r.ok ? "logged in" : "login failed") };
+    } catch (err) {
+      return { ok: false, detail: err instanceof Error ? err.message : String(err) };
+    }
+  }
+
   async getAccount(): Promise<BrokerAccount> {
     return this.call<BrokerAccount>("/account", "GET");
   }

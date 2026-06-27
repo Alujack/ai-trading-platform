@@ -28,68 +28,57 @@ async function call(path: string, method: string, payload?: unknown): Promise<Ai
   return res.json() as Promise<AiProviderState>;
 }
 
-export function AiSettingsModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+/**
+ * The full settings UI, rendered inline on the /settings page (it used to be a
+ * cramped popup modal). One <SettingsGroup> per concern so the page can breathe.
+ */
+export function SettingsPanels() {
   const { data, mutate } = useSWR<AiProviderState>("/api/ai-provider", fetcher, {
     revalidateOnFocus: false,
   });
 
-  useEffect(() => {
-    function onEsc(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    if (open) window.addEventListener("keydown", onEsc);
-    return () => window.removeEventListener("keydown", onEsc);
-  }, [open, onClose]);
-
-  if (!open) return null;
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm sm:items-center"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-lg rounded-xl border border-neutral-800 bg-neutral-950 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
+    <div className="mx-auto grid max-w-3xl grid-cols-1 gap-5">
+      <SettingsGroup
+        title="AI providers"
+        subtitle="Paste a key, test it, then switch. Keys are stored locally, never committed."
       >
-        <div className="flex items-center justify-between border-b border-neutral-800 px-5 py-4">
-          <div>
-            <h2 className="text-sm font-semibold text-neutral-100">AI Providers</h2>
-            <p className="mt-0.5 text-xs text-neutral-500">
-              Paste a key, test it, then switch. Keys are stored locally, never committed.
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="rounded-md p-1.5 text-neutral-500 hover:bg-neutral-900 hover:text-neutral-300"
-            aria-label="Close"
-          >
-            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none">
-              <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-          </button>
-        </div>
-
-        <div className="max-h-[70vh] space-y-3 overflow-y-auto p-5">
+        <div className="space-y-3">
           {!data && <p className="text-sm text-neutral-500">Loading providers…</p>}
           {data?.providers.map((p) => (
-            <ProviderRow
-              key={p.name}
-              detail={p}
-              onState={(s) => mutate(s, false)}
-            />
+            <ProviderRow key={p.name} detail={p} onState={(s) => mutate(s, false)} />
           ))}
-
-          <div className="pt-2">
-            <div className="mb-1 flex items-center gap-2 border-t border-neutral-800 pt-4">
-              <h3 className="text-sm font-semibold text-neutral-100">Telegram alerts</h3>
-              <p className="text-xs text-neutral-500">Confirm trades from your phone.</p>
-            </div>
-            <TelegramSection />
-          </div>
         </div>
-      </div>
+      </SettingsGroup>
+
+      <SettingsGroup title="Telegram alerts" subtitle="Confirm trades from your phone.">
+        <TelegramSection />
+      </SettingsGroup>
+
+      <SettingsGroup title="Broker (MT5)" subtitle="Your trading account login — demo first.">
+        <BrokerSection />
+      </SettingsGroup>
     </div>
+  );
+}
+
+function SettingsGroup({
+  title,
+  subtitle,
+  children,
+}: {
+  title: string;
+  subtitle: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="rounded-xl border border-neutral-800 bg-neutral-950/60 p-5">
+      <div className="mb-4">
+        <h2 className="text-sm font-semibold text-neutral-100">{title}</h2>
+        <p className="mt-0.5 text-xs text-neutral-500">{subtitle}</p>
+      </div>
+      {children}
+    </section>
   );
 }
 
@@ -295,6 +284,164 @@ function TelegramSection() {
           )}
         </div>
 
+        {msg && <p className={`text-xs ${msg.ok ? "text-emerald-400" : "text-rose-400"}`}>{msg.text}</p>}
+      </div>
+    </div>
+  );
+}
+
+interface BrokerStatus {
+  configured: boolean;
+  login: number | null;
+  server: string | null;
+  env: "demo" | "real" | null;
+  hasPassword: boolean;
+  lastTest: { ok: boolean; detail: string; testedAt: string } | null;
+  updatedAt: string | null;
+  encryptionReady: boolean;
+}
+
+function BrokerSection() {
+  const { data, mutate } = useSWR<BrokerStatus>("/api/brokers/credentials", fetcher, {
+    revalidateOnFocus: false,
+  });
+  const [login, setLogin] = useState("");
+  const [password, setPassword] = useState("");
+  const [server, setServer] = useState("");
+  const [env, setEnv] = useState<"demo" | "real">("demo");
+  const [busy, setBusy] = useState<"" | "save" | "test">("");
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [seeded, setSeeded] = useState(false);
+
+  // Seed visible (non-secret) fields once from server status.
+  useEffect(() => {
+    if (data && !seeded) {
+      if (data.login != null) setLogin(String(data.login));
+      if (data.server) setServer(data.server);
+      if (data.env) setEnv(data.env);
+      setSeeded(true);
+    }
+  }, [data, seeded]);
+
+  async function run(kind: typeof busy, fn: () => Promise<void>) {
+    setBusy(kind);
+    setMsg(null);
+    try {
+      await fn();
+    } catch (e) {
+      setMsg({ ok: false, text: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setBusy("");
+    }
+  }
+
+  const save = () =>
+    run("save", async () => {
+      const res = await fetch(`${API_BASE}/api/brokers/credentials`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ login: Number(login), password, server: server.trim(), env }),
+      });
+      if (!res.ok)
+        throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error || "Save failed");
+      await mutate();
+      setPassword("");
+      setMsg({ ok: true, text: "Saved. Run a test to log the terminal in." });
+    });
+
+  const test = () =>
+    run("test", async () => {
+      const res = await fetch(`${API_BASE}/api/brokers/credentials/test`, { method: "POST" });
+      const b = (await res.json()) as { ok?: boolean; detail?: string; error?: string };
+      setMsg({ ok: !!b.ok, text: b.detail || b.error || (b.ok ? "Logged in." : "Failed") });
+      await mutate();
+    });
+
+  const inputCls =
+    "w-full rounded-md border border-neutral-800 bg-neutral-950 px-3 py-1.5 font-mono text-xs text-neutral-100 placeholder:text-neutral-600 focus:border-neutral-600 focus:outline-none";
+  const labelCls = "mb-1 block text-[11px] font-medium uppercase tracking-wide text-neutral-500";
+  const canSave = busy === "" && login.trim() !== "" && password !== "" && server.trim() !== "" && !!data?.encryptionReady;
+
+  return (
+    <div className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-4">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        {data?.configured ? <Badge tone="emerald">saved</Badge> : <Badge tone="neutral">not set</Badge>}
+        {data?.lastTest && (
+          <Badge tone={data.lastTest.ok ? "emerald" : "amber"}>
+            {data.lastTest.ok ? "login ok" : "login failed"}
+          </Badge>
+        )}
+        <Badge tone={data?.env === "real" ? "amber" : "neutral"}>{data?.env ?? env}</Badge>
+      </div>
+
+      {data && !data.encryptionReady && (
+        <p className="mb-3 text-[11px] text-amber-400/90">
+          Set <span className="font-mono">ENCRYPTION_KEY</span> on the server before saving secrets
+          (<span className="font-mono">openssl rand -hex 32</span>).
+        </p>
+      )}
+
+      <div className="space-y-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <label className={labelCls}>Account login</label>
+            <input
+              value={login}
+              onChange={(e) => setLogin(e.target.value.replace(/[^0-9]/g, ""))}
+              inputMode="numeric"
+              placeholder="e.g. 12345678"
+              className={inputCls}
+            />
+          </div>
+          <div>
+            <label className={labelCls}>Environment</label>
+            <select value={env} onChange={(e) => setEnv(e.target.value as "demo" | "real")} className={inputCls}>
+              <option value="demo">demo</option>
+              <option value="real">real</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label className={labelCls}>Server</label>
+          <input
+            value={server}
+            onChange={(e) => setServer(e.target.value)}
+            placeholder="e.g. Exness-MT5Trial7"
+            className={inputCls}
+          />
+        </div>
+        <div>
+          <label className={labelCls}>Password {data?.hasPassword && <span className="text-emerald-500/70">· set</span>}</label>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder={data?.hasPassword ? "Replace password…" : "MT5 account password"}
+            className={inputCls}
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={save}
+            disabled={!canSave}
+            className="rounded-md border border-neutral-700 bg-neutral-800 px-3 py-1.5 text-xs font-medium text-neutral-100 hover:bg-neutral-700 disabled:opacity-40"
+          >
+            {busy === "save" ? "Saving…" : "Save"}
+          </button>
+          <button
+            onClick={test}
+            disabled={busy !== "" || !data?.configured}
+            className="rounded-md border border-neutral-800 px-3 py-1.5 text-xs font-medium text-neutral-300 hover:bg-neutral-900 disabled:opacity-40"
+          >
+            {busy === "test" ? "Testing…" : "Test connection"}
+          </button>
+        </div>
+
+        <p className="text-[11px] text-neutral-600">
+          Pushes credentials to the MT5 bridge to log the terminal in. Demo first — real requires the
+          promotion gate.
+        </p>
         {msg && <p className={`text-xs ${msg.ok ? "text-emerald-400" : "text-rose-400"}`}>{msg.text}</p>}
       </div>
     </div>

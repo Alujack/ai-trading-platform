@@ -27,6 +27,15 @@ const server = app.listen(port, host, () => {
 // Signal generation moved to the Python strategy runner (services/data);
 // strategies now POST candidates to POST /api/signals/candidate.
 
+// When live (BROKER=exness), push the UI-configured MT5 credentials to the
+// bridge so the terminal is logged into the right account on boot. Best-effort:
+// a missing/failed login is logged, not fatal — the user can fix it in Settings.
+void import("./execution/broker").then(({ ensureBrokerSession }) =>
+  ensureBrokerSession()
+    .then((r) => console.log(`[broker] startup session: ok=${r.ok} ${r.detail}`))
+    .catch((err) => console.error("[broker] startup session failed:", err instanceof Error ? err.message : err)),
+);
+
 if (process.env.ENABLE_PAPER_TRADING === "true") {
   startPaperTradingScheduler();
 }

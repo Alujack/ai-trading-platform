@@ -131,6 +131,12 @@ class CloseReq(BaseModel):
     ticket: int
 
 
+class SessionLoginReq(BaseModel):
+    login: int
+    password: str
+    server: str
+
+
 _TF_MAP: dict[str, int] = {
     "1min": mt5.TIMEFRAME_M1,
     "M1":   mt5.TIMEFRAME_M1,
@@ -158,6 +164,37 @@ def health(_: None = Depends(require_token)):
                     "detail": f"login={acct.login} server={MT5_SERVER}" if acct else "no account"}
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "detail": str(exc)}
+
+
+@app.post("/session/login")
+def session_login(req: SessionLoginReq, _: None = Depends(require_token)):
+    """Log the terminal into a specific account at runtime — creds come from the
+    main API (set in the web UI), not this bridge's .env. Replaces any current
+    session and updates the in-process creds so later reconnects use this account.
+    Returns {ok, detail}; a bad login is a clean ok=False, not a 5xx, so the
+    settings UI gets a usable verdict.
+    """
+    global MT5_LOGIN, MT5_PASSWORD, MT5_SERVER
+    with _lock:
+        try:
+            mt5.shutdown()
+        except Exception:  # noqa: BLE001 — best effort; terminal may not be initialized yet
+            pass
+        kwargs = {"login": req.login, "password": req.password, "server": req.server}
+        if MT5_TERMINAL_PATH:
+            kwargs["path"] = MT5_TERMINAL_PATH
+        if not mt5.initialize(**kwargs):
+            code, msg = mt5.last_error()
+            return {"ok": False, "detail": f"initialize failed: ({code}) {msg}"}
+        if mt5.account_info() is None and not mt5.login(req.login, password=req.password, server=req.server):
+            code, msg = mt5.last_error()
+            return {"ok": False, "detail": f"login failed: ({code}) {msg}"}
+        acct = mt5.account_info()
+        if acct is None:
+            return {"ok": False, "detail": "no account info after login"}
+        # Persist for reconnects within this process lifetime.
+        MT5_LOGIN, MT5_PASSWORD, MT5_SERVER = req.login, req.password, req.server
+        return {"ok": True, "detail": f"login={acct.login} server={req.server} balance={acct.balance}"}
 
 
 @app.get("/account")

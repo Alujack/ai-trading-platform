@@ -86,7 +86,10 @@ services:
       - AI_SERVICE_URL=http://ai:8000
       - BROKER=${BROKER:-paper}
       - EXNESS_ENV=${EXNESS_ENV:-demo}
-      - MT5_BRIDGE_URL=${MT5_BRIDGE_URL:-}
+      # In-network default: reach the dockerized bridge by service name. Override
+      # MT5_BRIDGE_URL in .env (e.g. http://host.docker.internal:8800) only if you
+      # run the bridge natively on the host instead of the `live` profile.
+      - MT5_BRIDGE_URL=${MT5_BRIDGE_URL:-http://mt5bridge:8800}
       - MT5_BRIDGE_TOKEN=${MT5_BRIDGE_TOKEN:-}
       - 'BROKER_SYMBOL_MAP={"EURUSD":"EURUSDm","XAUUSD":"XAUUSDm","BTCUSD":"BTCUSDm"}'
     ports:
@@ -189,6 +192,31 @@ services:
         condition: service_healthy
       ai:
         condition: service_started
+
+  # MT5 bridge (Plan 08) — runs the Exness/MT5 terminal under Wine so the whole
+  # stack, including live execution, comes up with one compose. Heavy (GUI under
+  # Wine), so it's behind the `live` profile: paper/dev runs without it
+  # (`docker compose up`), live brings it in (`docker compose --profile live up`).
+  # MT5 account creds are Phase-1 env vars; Phase 2 moves them to the DB/UI.
+  mt5bridge:
+    build:
+      context: ./services/mt5bridge
+    container_name: trading-mt5bridge
+    restart: unless-stopped
+    profiles: ["live"]
+    env_file: .env
+    environment:
+      - BRIDGE_HOST=0.0.0.0
+      - BRIDGE_PORT=8800
+      - MT5_LOGIN=${MT5_LOGIN:-}
+      - MT5_PASSWORD=${MT5_PASSWORD:-}
+      - MT5_SERVER=${MT5_SERVER:-}
+      - MT5_BRIDGE_TOKEN=${MT5_BRIDGE_TOKEN:-}
+      - DEFAULT_DEVIATION=${DEFAULT_DEVIATION:-20}
+    ports:
+      - "${MT5_BRIDGE_PORT:-8800}:8800"
+      - "${MT5_VNC_PORT:-3001}:3000" # noVNC — view/log-in to the terminal
+    shm_size: "1gb" # Wine + GUI needs more shared memory than the 64m default
 
 volumes:
   postgres-data:

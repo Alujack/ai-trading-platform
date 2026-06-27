@@ -24,11 +24,9 @@ const ITEMS: { href: string; label: string; Icon: LucideIcon }[] = [
 ];
 
 export function LeftNavRail({
-  onSetup,
   accent,
   onAccent,
 }: {
-  onSetup: () => void;
   accent: Accent;
   onAccent: (a: Accent) => void;
 }) {
@@ -102,18 +100,12 @@ export function LeftNavRail({
         ))}
       </div>
 
-      <button
-        onClick={onSetup}
-        title="AI providers & settings"
-        style={btnReset}
-      >
-        <RailItem label="Setup" Icon={Settings} />
-      </button>
+      <Link href="/settings" title="Settings — AI, Telegram & broker" style={{ textDecoration: "none" }}>
+        <RailItem label="Settings" Icon={Settings} active={pathname === "/settings"} />
+      </Link>
     </nav>
   );
 }
-
-const btnReset = { border: "none", background: "transparent", padding: 0, cursor: "pointer", fontFamily: "inherit" } as const;
 
 function RailItem({ label, Icon, active }: { label: string; Icon: LucideIcon; active?: boolean }) {
   return (

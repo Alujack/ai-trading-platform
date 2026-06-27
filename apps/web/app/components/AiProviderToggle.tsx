@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import useSWR from "swr";
 import { API_BASE, fetcher } from "@/lib/api";
 import { AI_PROVIDERS, type AiProvider, type AiProviderState } from "@/lib/types";
-import { AiSettingsModal } from "./AiSettingsModal";
 
 const LABELS: Record<AiProvider, string> = {
   mock: "Mock",
@@ -24,7 +24,6 @@ export function AiProviderToggle() {
     revalidateOnFocus: false,
   });
   const [busy, setBusy] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
 
   async function change(provider: AiProvider) {
     if (!data || provider === data.active) return;
@@ -70,11 +69,11 @@ export function AiProviderToggle() {
             );
           })}
         </select>
-        <button
-          onClick={() => setSettingsOpen(true)}
+        <Link
+          href="/settings"
           className="rounded-md border border-neutral-800 p-1.5 text-neutral-400 hover:bg-neutral-900 hover:text-neutral-200"
-          title="Manage API keys"
-          aria-label="Manage AI provider keys"
+          title="Settings"
+          aria-label="Open settings"
         >
           <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none">
             <path
@@ -88,9 +87,8 @@ export function AiProviderToggle() {
               strokeWidth="1.2"
             />
           </svg>
-        </button>
+        </Link>
       </div>
-      <AiSettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </>
   );
 }

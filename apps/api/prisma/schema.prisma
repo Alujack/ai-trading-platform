@@ -244,6 +244,26 @@ model BacktestRun {
   @@index([createdAt])
 }
 
+// Broker (MT5) account credentials, set from the web UI instead of .env so the
+// product is configurable without touching files. The password is stored
+// ENCRYPTED at rest (AES-256-GCM, see lib/crypto.ts) and never returned to the
+// client. Single-account v1: one row is `isActive`; the broker pushes it to the
+// MT5 bridge via POST /session/login. Multi-tenant is a later effort.
+model BrokerCredential {
+  id          String   @id @default(cuid())
+  broker      String   @default("exness") // broker family; only "exness"/MT5 today
+  login       Int // MT5 account number
+  passwordEnc String // encrypted blob "iv:authTag:ciphertext" (hex), never plaintext
+  server      String // MT5 server name, e.g. "Exness-MT5Trial7"
+  env         String   @default("demo") // "demo" | "real" — mirrors ExnessBroker.env
+  isActive    Boolean  @default(true)
+  lastTest    Json? // { ok: boolean, detail: string, testedAt: ISO } from /session/login
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive])
+}
+
 // Human-in-the-loop approval for CONFIRM-mode signals.
 model Approval {
   id        String         @id @default(cuid())

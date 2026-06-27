@@ -7,6 +7,7 @@
  *
  * Going from demo to real is ONLY this env change — no code path differs.
  */
+import { getActiveCredential } from "./credentials";
 import { ExnessBroker } from "./exnessBroker";
 import { PaperBroker } from "./paperBroker";
 import type { Broker } from "./types";
@@ -34,6 +35,23 @@ export function getBroker(): Broker {
   }
 
   throw new Error(`unknown BROKER='${kind}' (expected paper|exness)`);
+}
+
+/**
+ * Push the UI-configured MT5 credentials to the bridge so its terminal logs into
+ * the right account. No-op for the paper broker. Returns a {ok, detail} verdict
+ * (never throws) so the settings UI and startup can surface the outcome.
+ */
+export async function ensureBrokerSession(): Promise<{ ok: boolean; detail: string }> {
+  const kind = (process.env.BROKER ?? "paper").trim().toLowerCase();
+  if (kind !== "exness") return { ok: true, detail: "paper broker — no MT5 session needed" };
+
+  const cred = await getActiveCredential();
+  if (!cred) return { ok: false, detail: "no broker credentials configured (Settings → Broker)" };
+
+  const broker = getBroker();
+  if (!(broker instanceof ExnessBroker)) return { ok: false, detail: "active broker is not exness" };
+  return broker.login({ login: cred.login, password: cred.password, server: cred.server });
 }
 
 /** Test-only: drop the memoized broker so env changes take effect. */

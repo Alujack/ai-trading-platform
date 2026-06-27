@@ -1,6 +1,7 @@
 import { Router } from "express";
 import aiProviderRouter from "./aiProvider.routes";
 import backtestsRouter from "./backtests.routes";
+import brokersRouter from "./brokers.routes";
 import candlesRouter from "./candles.routes";
 import configRouter from "./config.routes";
 import healthRouter from "./health.routes";
@@ -32,5 +33,6 @@ router.use(streamRouter);
 router.use(configRouter);
 router.use(telegramRouter);
 router.use(backtestsRouter);
+router.use(brokersRouter);
 
 export default router;
