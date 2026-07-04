@@ -8,6 +8,10 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from .base import Strategy
+from .gold_asian_breakout import GoldAsianBreakout
+from .gold_london_sweep import GoldLondonSweep
+from .gold_news_fade import GoldNewsFade
+from .gold_vwap_scalp import GoldVwapScalp
 from .ict import IctConfluence, IctFvg, IctOrderBlock, IctRandomBaseline, IctSweepMss
 from .meanrev_rsi import MeanRevRsi
 from .scalp_ema import ScalpEma
@@ -31,6 +35,15 @@ STRATEGY_FACTORIES: dict[str, Callable[[dict[str, Any] | None], Strategy]] = {
     # killzone + structural stop + min-RR target frame, but random direction —
     # the significance baseline ict_confluence's OOS edge must beat.
     "ict_random_baseline": IctRandomBaseline,
+    # --- Gold strategy orchestra (XAU/USD multi-session bot) ---
+    # Session-based liquidity sweep at London open; sweeps Asian H/L then reverses.
+    "gold_london_sweep": GoldLondonSweep,
+    # Breakout from tight Asian consolidation at London/NY open.
+    "gold_asian_breakout": GoldAsianBreakout,
+    # VWAP + BB bounce scalper during London-NY overlap (peak liquidity).
+    "gold_vwap_scalp": GoldVwapScalp,
+    # Post-spike mean reversion after high-impact news; the only VOLATILE strategy.
+    "gold_news_fade": GoldNewsFade,
 }
 
 

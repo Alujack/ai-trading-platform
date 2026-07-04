@@ -81,20 +81,49 @@ def _compute(df: pd.DataFrame) -> pd.DataFrame:
     out["ema50"] = ta.ema(df["close"], length=50)
     out["ema200"] = ta.ema(df["close"], length=200)
     out["atr"] = ta.atr(df["high"], df["low"], df["close"], length=14)
+
+    # --- Gold strategy additions ---
+    # Bollinger Bands (20, 2.0) — mean-reversion anchor for Gold scalping.
+    bb = ta.bbands(df["close"], length=20, std=2.0)
+    if bb is not None and not bb.empty:
+        # pandas_ta_classic returns columns like BBL_20_2.0, BBM_20_2.0, BBU_20_2.0, BBB_20_2.0, BBP_20_2.0
+        bb_cols = bb.columns.tolist()
+        lower_col = [c for c in bb_cols if c.startswith("BBL_")]
+        upper_col = [c for c in bb_cols if c.startswith("BBU_")]
+        pctb_col = [c for c in bb_cols if c.startswith("BBP_")]  # %B
+        if lower_col:
+            out["bb_lower"] = bb[lower_col[0]]
+        if upper_col:
+            out["bb_upper"] = bb[upper_col[0]]
+        if pctb_col:
+            out["bb_pctb"] = bb[pctb_col[0]]
+
+    # ADX(14) — directional strength (previously live-only in regime.py).
+    adx_df = ta.adx(df["high"], df["low"], df["close"], length=14)
+    if adx_df is not None and not adx_df.empty:
+        adx_cols = adx_df.filter(like="ADX_")
+        if not adx_cols.empty:
+            out["adx"] = adx_cols.iloc[:, 0]
+
     return out
 
 
 UPSERT_SQL = """
 INSERT INTO "Indicator" (
-    "id", "symbol", "timeframe", "timestamp", "rsi", "ema20", "ema50", "ema200", "atr"
+    "id", "symbol", "timeframe", "timestamp", "rsi", "ema20", "ema50", "ema200", "atr",
+    "bbLower", "bbUpper", "bbPctB", "adx"
 )
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 ON CONFLICT ("symbol", "timeframe", "timestamp") DO UPDATE SET
-    "rsi"    = EXCLUDED."rsi",
-    "ema20"  = EXCLUDED."ema20",
-    "ema50"  = EXCLUDED."ema50",
-    "ema200" = EXCLUDED."ema200",
-    "atr"    = EXCLUDED."atr"
+    "rsi"     = EXCLUDED."rsi",
+    "ema20"   = EXCLUDED."ema20",
+    "ema50"   = EXCLUDED."ema50",
+    "ema200"  = EXCLUDED."ema200",
+    "atr"     = EXCLUDED."atr",
+    "bbLower" = EXCLUDED."bbLower",
+    "bbUpper" = EXCLUDED."bbUpper",
+    "bbPctB"  = EXCLUDED."bbPctB",
+    "adx"     = EXCLUDED."adx"
 """
 
 
@@ -114,6 +143,10 @@ async def _upsert_indicators(
         ema50 = _to_decimal(row["ema50"])
         ema200 = _to_decimal(row["ema200"])
         atr = _to_decimal(row["atr"])
+        bb_lower = _to_decimal(row.get("bb_lower"))
+        bb_upper = _to_decimal(row.get("bb_upper"))
+        bb_pctb = _to_decimal(row.get("bb_pctb"))
+        adx = _to_decimal(row.get("adx"))
         # Skip leading rows where every indicator is still NaN (no useful info).
         if all(v is None for v in (rsi, ema20, ema50, ema200, atr)):
             continue
@@ -128,6 +161,10 @@ async def _upsert_indicators(
                 ema50,
                 ema200,
                 atr,
+                bb_lower,
+                bb_upper,
+                bb_pctb,
+                adx,
             )
         )
     if not payload:
