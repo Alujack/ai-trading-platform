@@ -5,12 +5,19 @@
 # image only needs the dependency tree + a generated Prisma client baked in.
 FROM node:20-bookworm-slim
 
-# Prisma's query engine needs openssl at runtime.
+# Prisma's query engine needs openssl at runtime. Python + the data-service deps
+# are needed so the API can spawn services/data/backtester.py for UI backtests.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends openssl ca-certificates \
+    && apt-get install -y --no-install-recommends \
+        openssl ca-certificates python3 python3-pip python3-venv \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+
+# Install the Python backtester's deps (system-wide; this is a dev image).
+# Done before the npm layer so it caches independently of JS dependency churn.
+COPY services/data/requirements.txt services/data/requirements.txt
+RUN pip3 install --no-cache-dir --break-system-packages -r services/data/requirements.txt
 
 # Copy only manifests first for better layer caching. Workspace symlinks resolve
 # against these (the package.json files), so npm install can wire the monorepo
