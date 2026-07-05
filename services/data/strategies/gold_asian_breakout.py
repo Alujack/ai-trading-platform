@@ -37,7 +37,7 @@ def _signal_id(symbol: str, timeframe: str, direction: str, bar_ts: datetime) ->
 class GoldAsianBreakout:
     name = "gold_asian_breakout"
     regimes = {TRENDING, RANGING, VOLATILE}
-    lookback = 80
+    lookback = 150
 
     def __init__(self, params: dict[str, Any] | None = None) -> None:
         p = params or {}
@@ -74,8 +74,8 @@ class GoldAsianBreakout:
         from datetime import timezone, time as dtime
 
         NY = ZoneInfo("America/New_York")
-        asian_highs: list[Decimal] = []
-        asian_lows: list[Decimal] = []
+        asian_bars: list[IndicatorBar] = []
+        found_asian = False
 
         for bar in bars:
             ts = bar.timestamp
@@ -84,17 +84,20 @@ class GoldAsianBreakout:
             ny_time = ts.astimezone(NY).time()
             is_asian = ny_time >= dtime(20, 0) or ny_time < dtime(2, 0)
 
-            if is_asian and bar.high is not None and bar.low is not None:
-                asian_highs.append(bar.high)
-                asian_lows.append(bar.low)
+            if is_asian:
+                found_asian = True
+                if bar.high is not None and bar.low is not None:
+                    asian_bars.append(bar)
+            elif found_asian:
+                break
 
-        if len(asian_highs) < 4:
+        if len(asian_bars) < 4:
             return None
 
-        high = max(asian_highs)
-        low = min(asian_lows)
+        high = max(b.high for b in asian_bars if b.high is not None)
+        low = min(b.low for b in asian_bars if b.low is not None)
         mid = (high + low) / Decimal("2")
-        return (high, low, mid, len(asian_highs))
+        return (high, low, mid, len(asian_bars))
 
     def _volume_ratio(self, latest: IndicatorBar, prior: list[IndicatorBar]) -> Decimal | None:
         """Ratio of the latest bar's volume to the recent average."""

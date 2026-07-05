@@ -47,7 +47,7 @@ def _signal_id(symbol: str, timeframe: str, direction: str, bar_ts: datetime) ->
 class GoldLondonSweep:
     name = "gold_london_sweep"
     regimes = {TRENDING, RANGING, VOLATILE}
-    lookback = 80  # need enough bars to see the Asian range + London action
+    lookback = 150  # need enough bars to see the Asian range + London action
 
     def __init__(self, params: dict[str, Any] | None = None) -> None:
         p = params or {}
@@ -63,10 +63,10 @@ class GoldLondonSweep:
         self.ai_min_score = int(p.get("aiMinScore", 65))
         self.cooldown_ms = int(p.get("cooldownMs", 30 * 60 * 1000))  # 30 min
 
-    def _find_asian_range(self, bars: list[IndicatorBar]) -> tuple[Decimal, Decimal, Decimal] | None:
+    def _find_asian_range(self, bars: list[IndicatorBar]) -> tuple[Decimal, Decimal, Decimal, int] | None:
         """Scan bars for the Asian session range (20:00–02:00 NY).
 
-        Returns (asian_high, asian_low, midpoint) or None if insufficient data.
+        Returns (asian_high, asian_low, midpoint, bar_count) or None if insufficient data.
         The bars list is most-recent first, so we walk backwards into Asia.
         """
         from zoneinfo import ZoneInfo
@@ -74,6 +74,7 @@ class GoldLondonSweep:
 
         NY = ZoneInfo("America/New_York")
         asian_bars: list[IndicatorBar] = []
+        found_asian = False
 
         for bar in bars:
             ts = bar.timestamp
@@ -83,17 +84,20 @@ class GoldLondonSweep:
 
             # Asian session: 20:00–23:59 or 00:00–02:00
             is_asian = ny_time >= dtime(20, 0) or ny_time < dtime(2, 0)
-            if is_asian and bar.high is not None and bar.low is not None:
-                asian_bars.append(bar)
+            if is_asian:
+                found_asian = True
+                if bar.high is not None and bar.low is not None:
+                    asian_bars.append(bar)
+            elif found_asian:
+                break
 
         if len(asian_bars) < 4:
             return None
 
-        high = max(b.high for b in asian_bars)  # type: ignore[type-var]
-        low = min(b.low for b in asian_bars)     # type: ignore[type-var]
-        assert high is not None and low is not None
+        high = max(b.high for b in asian_bars if b.high is not None)
+        low = min(b.low for b in asian_bars if b.low is not None)
         mid = (high + low) / Decimal("2")
-        return (high, low, mid)
+        return (high, low, mid, len(asian_bars))
 
     def _is_london(self, ts: datetime) -> bool:
         """Check if the timestamp is in the London killzone (02:00–05:00 NY)."""
@@ -129,7 +133,7 @@ class GoldLondonSweep:
         asian = self._find_asian_range(bars)
         if asian is None:
             return []
-        asian_high, asian_low, asian_mid = asian
+        asian_high, asian_low, asian_mid, asian_count = asian
 
         # Check for BSL sweep (bullish sweep above Asian high → SHORT setup)
         sweep_above = latest.high - asian_high  # type: ignore[operator]

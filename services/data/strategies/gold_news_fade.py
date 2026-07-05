@@ -49,27 +49,36 @@ def _signal_id(symbol: str, timeframe: str, direction: str, bar_ts: datetime) ->
 def _fast_rsi(bars: list[IndicatorBar], length: int = 5) -> Decimal | None:
     """Compute a fast RSI(5) from the most recent bars.
 
-    Uses the standard RSI formula on close prices.  Returns None if
-    insufficient data.  Bars are most-recent first.
+    Uses Wilder's Smoothing (RMA) on close prices. Returns None if
+    insufficient data. Bars are most-recent first.
     """
     if len(bars) < length + 1:
         return None
 
-    # Get closes in chronological order (oldest first).
-    closes = [float(bars[i].close) for i in range(length, -1, -1)]
+    # We need a longer warmup for RMA, ideally at least 3x-4x length.
+    # Since the strategy lookback is 60, we'll just use all available bars.
+    closes = [float(b.close) for b in reversed(bars)]
+    
+    if len(closes) < length + 1:
+        return None
 
     gains = []
     losses = []
-    for i in range(1, len(closes)):
+    for i in range(1, length + 1):
         delta = closes[i] - closes[i - 1]
         gains.append(max(0, delta))
         losses.append(max(0, -delta))
 
-    if not gains:
-        return None
+    avg_gain = sum(gains) / length
+    avg_loss = sum(losses) / length
 
-    avg_gain = sum(gains) / len(gains)
-    avg_loss = sum(losses) / len(losses)
+    for i in range(length + 1, len(closes)):
+        delta = closes[i] - closes[i - 1]
+        gain = max(0, delta)
+        loss = max(0, -delta)
+        
+        avg_gain = (avg_gain * (length - 1) + gain) / length
+        avg_loss = (avg_loss * (length - 1) + loss) / length
 
     if avg_loss == 0:
         return Decimal("100")
@@ -191,8 +200,8 @@ class GoldNewsFade:
 
             direction = "SHORT"
             stop = spike_extreme + self.atr_buffer * atr
-            # Target = 50% retrace back toward pre-spike.
-            retrace_target = close - (spike_size * self.retrace_pct)
+            # Target = 50% retrace of the spike (calculated from the extreme).
+            retrace_target = spike_extreme - (spike_size * self.retrace_pct)
             target = retrace_target
 
             risk = abs(stop - close)
@@ -258,7 +267,8 @@ class GoldNewsFade:
 
             direction = "LONG"
             stop = spike_extreme - self.atr_buffer * atr
-            retrace_target = close + (spike_size * self.retrace_pct)
+            # Target = 50% retrace of the spike (calculated from the extreme).
+            retrace_target = spike_extreme + (spike_size * self.retrace_pct)
             target = retrace_target
 
             risk = abs(close - stop)
