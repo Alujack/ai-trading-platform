@@ -31,7 +31,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from .base import RANGING, TRENDING, BarWindow, Drawing, IndicatorBar, SignalCandidate
+from .base import RANGING, TRENDING, VOLATILE, BarWindow, Drawing, IndicatorBar, SignalCandidate
 
 # Import session tools — these are in the parent package.
 import sys
@@ -46,18 +46,18 @@ def _signal_id(symbol: str, timeframe: str, direction: str, bar_ts: datetime) ->
 
 class GoldLondonSweep:
     name = "gold_london_sweep"
-    regimes = {TRENDING, RANGING}
+    regimes = {TRENDING, RANGING, VOLATILE}
     lookback = 80  # need enough bars to see the Asian range + London action
 
     def __init__(self, params: dict[str, Any] | None = None) -> None:
         p = params or {}
         # Sweep must exceed Asian level by at least this × ATR to count.
-        self.sweep_min_atr = Decimal(str(p.get("sweepMinAtr", 0.3)))
+        self.sweep_min_atr = Decimal(str(p.get("sweepMinAtr", 0.2)))
         # RSI thresholds for confirmation.
-        self.rsi_ob = Decimal(str(p.get("rsiOverbought", 70)))
-        self.rsi_os = Decimal(str(p.get("rsiOversold", 30)))
+        self.rsi_ob = Decimal(str(p.get("rsiOverbought", 65)))
+        self.rsi_os = Decimal(str(p.get("rsiOversold", 35)))
         # ATR buffer added to the sweep extreme for the stop-loss.
-        self.atr_buffer = Decimal(str(p.get("atrBuffer", 1.0)))
+        self.atr_buffer = Decimal(str(p.get("atrBuffer", 1.5)))
         # Minimum RR to emit a signal.
         self.min_rr = Decimal(str(p.get("minRr", 2.0)))
         self.ai_min_score = int(p.get("aiMinScore", 65))
@@ -133,11 +133,12 @@ class GoldLondonSweep:
 
         # Check for BSL sweep (bullish sweep above Asian high → SHORT setup)
         sweep_above = latest.high - asian_high  # type: ignore[operator]
+        rsi_ob_confirmed = any(b.rsi is not None and b.rsi > self.rsi_ob for b in bars[:3])
         if (
             sweep_above is not None
             and sweep_above > self.sweep_min_atr * atr
             and close < asian_high       # closed back below = rejection
-            and rsi > self.rsi_ob        # overbought confirmation
+            and rsi_ob_confirmed         # overbought confirmation
         ):
             direction = "SHORT"
             stop = latest.high + self.atr_buffer * atr  # type: ignore[operator]
@@ -154,7 +155,7 @@ class GoldLondonSweep:
             reasoning = (
                 f"[LONDON SWEEP] SHORT @ {close}: Price swept Asian high {asian_high} "
                 f"by {sweep_above:.2f} ({float(sweep_above / atr):.1f}×ATR), then rejected "
-                f"back below. RSI(14)={rsi} (overbought). "
+                f"back below. RSI(14)={rsi} (overbought recently). "
                 f"SL={stop:.2f} (sweep high + {self.atr_buffer}×ATR), "
                 f"TP={target:.2f} (Asian low). RR 1:{float(rr):.1f}. "
                 f"Asian range: {asian_high}–{asian_low} (mid {asian_mid:.2f})."
@@ -195,11 +196,12 @@ class GoldLondonSweep:
 
         # Check for SSL sweep (bearish sweep below Asian low → LONG setup)
         sweep_below = asian_low - latest.low  # type: ignore[operator]
+        rsi_os_confirmed = any(b.rsi is not None and b.rsi < self.rsi_os for b in bars[:3])
         if (
             sweep_below is not None
             and sweep_below > self.sweep_min_atr * atr
             and close > asian_low        # closed back above = rejection
-            and rsi < self.rsi_os        # oversold confirmation
+            and rsi_os_confirmed         # oversold confirmation
         ):
             direction = "LONG"
             stop = latest.low - self.atr_buffer * atr  # type: ignore[operator]
@@ -216,7 +218,7 @@ class GoldLondonSweep:
             reasoning = (
                 f"[LONDON SWEEP] LONG @ {close}: Price swept Asian low {asian_low} "
                 f"by {sweep_below:.2f} ({float(sweep_below / atr):.1f}×ATR), then reclaimed "
-                f"back above. RSI(14)={rsi} (oversold). "
+                f"back above. RSI(14)={rsi} (oversold recently). "
                 f"SL={stop:.2f} (sweep low − {self.atr_buffer}×ATR), "
                 f"TP={target:.2f} (Asian high). RR 1:{float(rr):.1f}. "
                 f"Asian range: {asian_high}–{asian_low} (mid {asian_mid:.2f})."

@@ -50,7 +50,9 @@ async def load_bars(
                c."open" AS open, c."high" AS high, c."low" AS low, c."close" AS close,
                c."volume" AS volume,
                i."rsi" AS rsi, i."ema20" AS ema20, i."ema50" AS ema50,
-               i."ema200" AS ema200, i."atr" AS atr
+               i."ema200" AS ema200, i."atr" AS atr,
+               i."bbLower" AS bb_lower, i."bbUpper" AS bb_upper,
+               i."bbPctB" AS bb_pctb, i."adx" AS adx
         FROM "Candle" c
         JOIN "Indicator" i
           ON i."symbol" = c."symbol"
@@ -73,6 +75,10 @@ async def load_bars(
             ema50=_dec(r["ema50"]),
             ema200=_dec(r["ema200"]),
             atr=_dec(r["atr"]),
+            bb_lower=_dec(r["bb_lower"]),
+            bb_upper=_dec(r["bb_upper"]),
+            bb_pctb=_dec(r["bb_pctb"]),
+            adx=_dec(r["adx"]),
         )
         for r in rows
     ]

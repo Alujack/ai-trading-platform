@@ -12,6 +12,7 @@ from .gold_asian_breakout import GoldAsianBreakout
 from .gold_london_sweep import GoldLondonSweep
 from .gold_news_fade import GoldNewsFade
 from .gold_vwap_scalp import GoldVwapScalp
+from .gold_zigzag_reversal import GoldZigzagReversal, GoldZigzagReversalDaily
 from .ict import IctConfluence, IctFvg, IctOrderBlock, IctRandomBaseline, IctSweepMss
 from .meanrev_rsi import MeanRevRsi
 from .scalp_ema import ScalpEma
@@ -44,6 +45,12 @@ STRATEGY_FACTORIES: dict[str, Callable[[dict[str, Any] | None], Strategy]] = {
     "gold_vwap_scalp": GoldVwapScalp,
     # Post-spike mean reversion after high-impact news; the only VOLATILE strategy.
     "gold_news_fade": GoldNewsFade,
+    # Swing-pivot (ZigZag) reversal — the legit core of the "Happy Gold" EA,
+    # rebuilt without the hidden martingale/grid. One position, hard ATR stop.
+    "gold_zigzag_reversal": GoldZigzagReversal,
+    # Higher-frequency ZigZag tuning: ~1.2 trades/day on XAUUSD 15min (thinner
+    # per-trade edge). For when daily activity matters more than max expectancy.
+    "gold_zigzag_reversal_daily": GoldZigzagReversalDaily,
 }
 
 

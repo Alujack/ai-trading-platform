@@ -1,0 +1,20 @@
+[
+  {
+    "strategy": "gold_zigzag_reversal",
+    "symbol": "XAUUSD",
+    "timeframe": "15min",
+    "optimized": false,
+    "objective": "expectancy_r",
+    "folds": 48,
+    "profitable_folds": 7,
+    "walk_forward_efficiency": null,
+    "oos_trades": 37,
+    "oos_win_rate": 0.1891891891891892,
+    "oos_profit_factor": 1.5345087182919797,
+    "oos_expectancy_r": 0.44381553905660337,
+    "oos_total_r": 16.421174945094325,
+    "oos_max_drawdown_r": 11.963773998668131,
+    "oos_max_consecutive_losses": 12,
+    "oos_sharpe_per_trade": 0.6981039905076442
+  }
+]

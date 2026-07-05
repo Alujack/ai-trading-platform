@@ -26,7 +26,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from .base import TRENDING, BarWindow, Drawing, IndicatorBar, SignalCandidate
+from .base import RANGING, TRENDING, VOLATILE, BarWindow, Drawing, IndicatorBar, SignalCandidate
 
 
 def _signal_id(symbol: str, timeframe: str, direction: str, bar_ts: datetime) -> str:
@@ -36,15 +36,15 @@ def _signal_id(symbol: str, timeframe: str, direction: str, bar_ts: datetime) ->
 
 class GoldAsianBreakout:
     name = "gold_asian_breakout"
-    regimes = {TRENDING}
+    regimes = {TRENDING, RANGING, VOLATILE}
     lookback = 80
 
     def __init__(self, params: dict[str, Any] | None = None) -> None:
         p = params or {}
         # Asian range must be below this × ATR to be "tight" (i.e. consolidation).
-        self.max_range_atr = Decimal(str(p.get("maxRangeAtr", 1.5)))
+        self.max_range_atr = Decimal(str(p.get("maxRangeAtr", 2.5)))
         # ADX must be above this to confirm directional strength.
-        self.adx_min = Decimal(str(p.get("adxMin", 20)))
+        self.adx_min = Decimal(str(p.get("adxMin", 15)))
         # Volume confirmation: breakout bar vs recent average.
         self.vol_min_ratio = Decimal(str(p.get("volMinRatio", 1.2)))
         self.vol_lookback = int(p.get("volLookback", 20))

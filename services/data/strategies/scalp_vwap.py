@@ -47,17 +47,28 @@ def _signal_id(symbol: str, timeframe: str, direction: str, bar_ts: datetime) ->
 def _vwap(bars: list[IndicatorBar]) -> Decimal | None:
     """Volume-weighted average of typical price over the window.
 
-    Returns None if any bar lacks OHLC/volume or total volume is zero — VWAP is
-    the strategy's bias anchor, so a partial computation is worse than abstaining.
+    Falls back to an equal-weighted (TWAP) average when the window carries no
+    volume at all. The weighting mode is chosen once for the whole window, so a
+    real volume (e.g. 5000) and the weight-1 fallback are never mixed — in volume
+    mode a bar without volume contributes nothing rather than a distorting sample.
+    Returns None if any bar lacks OHLC — VWAP is the strategy's bias anchor, so a
+    partial computation is worse than abstaining.
     """
+    has_volume = any(b.volume is not None and b.volume > 0 for b in bars)
     num = Decimal("0")
     den = Decimal("0")
     for b in bars:
-        if b.high is None or b.low is None or b.volume is None:
+        if b.high is None or b.low is None:
             return None
         typical = (b.high + b.low + b.close) / Decimal("3")
-        num += typical * b.volume
-        den += b.volume
+        if has_volume:
+            if b.volume is None or b.volume <= 0:
+                continue
+            weight = b.volume
+        else:
+            weight = Decimal("1")
+        num += typical * weight
+        den += weight
     if den <= 0:
         return None
     return num / den

@@ -35,6 +35,10 @@ class IndicatorBar:
     ema50: Decimal | None = None
     ema200: Decimal | None = None
     atr: Decimal | None = None
+    bb_lower: Decimal | None = None
+    bb_upper: Decimal | None = None
+    bb_pctb: Decimal | None = None
+    adx: Decimal | None = None
     open: Decimal | None = None
     high: Decimal | None = None
     low: Decimal | None = None

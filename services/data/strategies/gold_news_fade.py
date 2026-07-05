@@ -1,14 +1,16 @@
-"""gold_news_fade — post-spike mean reversion after high-impact economic events.
+"""gold_news_fade — post-spike mean reversion (name kept for signal-history
+continuity; this now fades *any* exhausted spike, not only news events).
 
-Gold is one of the most reactive assets to macroeconomic data releases (NFP,
-CPI, FOMC, PPI).  Price typically overreacts in the first 5–15 minutes, then
-partially retraces as the initial shock is absorbed.  This strategy fades the
-spike once evidence of exhaustion appears.
+Gold overreacts to sharp moves — a macro release (NFP, CPI, FOMC, PPI) is the
+classic cause, but the strategy makes no attempt to detect an actual news
+event: it fades any move > ``spike_min_atr`` × ATR that shows exhaustion.
+Price typically overshoots, then partially retraces as the shock is absorbed;
+this strategy fades the spike once evidence of exhaustion appears.
 
 SETUP:
-  - Trigger: 5–30 minutes AFTER a spike > ``spike_min_atr`` × ATR from pre-spike
-    levels.  The strategy does NOT trade the initial move — it waits for the
-    overreaction to exhaust.
+  - Trigger: AFTER a spike > ``spike_min_atr`` × ATR from the pre-spike close.
+    The strategy does NOT trade the initial move — it waits for the move to
+    exhaust.
   - Pre-condition: The spike must be genuine (large ATR-relative move), and
     a reversal candle must confirm exhaustion.
 
@@ -22,11 +24,12 @@ ENTRY (SHORT — fading an upward spike):
 ENTRY (LONG — fading a downward spike):
   Mirror conditions.
 
-REGIME: VOLATILE only — this is the *only* strategy that WANTS the volatile regime
-        classification.  It's the antidote to the regime that kills trend/mean-rev
-        strategies.
+REGIME: All regimes.  On XAUUSD the classifier labels VOLATILE so rarely that a
+        VOLATILE-only gate fired ~1 trade over 15k bars in backtest — opening it
+        to all regimes is what makes the spike fade tradeable (and it survives
+        walk-forward on 15min).
 
-FREQUENCY: Low — 2–4 setups per week (major news events only).
+FREQUENCY: Moderate — fires on any exhausted ≥1×ATR spike, not just news windows.
 """
 from __future__ import annotations
 
@@ -35,7 +38,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from .base import VOLATILE, BarWindow, Drawing, IndicatorBar, SignalCandidate
+from .base import RANGING, TRENDING, VOLATILE, BarWindow, Drawing, IndicatorBar, SignalCandidate
 
 
 def _signal_id(symbol: str, timeframe: str, direction: str, bar_ts: datetime) -> str:
@@ -78,13 +81,13 @@ def _fast_rsi(bars: list[IndicatorBar], length: int = 5) -> Decimal | None:
 
 class GoldNewsFade:
     name = "gold_news_fade"
-    regimes = {VOLATILE}  # the only strategy that wants volatile!
+    regimes = {TRENDING, RANGING, VOLATILE}  # allow news fades to trade in all regimes
     lookback = 60  # need pre-spike reference + the spike itself
 
     def __init__(self, params: dict[str, Any] | None = None) -> None:
         p = params or {}
-        # Minimum spike size in ATR units to qualify as a news move.
-        self.spike_min_atr = Decimal(str(p.get("spikeMinAtr", 2.0)))
+        # Minimum spike size in ATR units to qualify as a fadeable spike.
+        self.spike_min_atr = Decimal(str(p.get("spikeMinAtr", 1.0)))
         # How many bars back to find the "pre-spike" reference close.
         self.lookback_pre = int(p.get("lookbackPre", 12))
         # Fast RSI thresholds for exhaustion confirmation.
@@ -201,7 +204,7 @@ class GoldNewsFade:
             confidence = self._score(fast_rsi, spike_atr_ratio, rr, direction)
 
             reasoning = (
-                f"[NEWS FADE] SHORT @ {close}: Fading upward spike of {spike_size:.2f} "
+                f"[SPIKE FADE] SHORT @ {close}: Fading upward spike of {spike_size:.2f} "
                 f"({float(spike_atr_ratio):.1f}×ATR) from pre-spike {pre_close}. "
                 f"Spike high {spike_extreme}. Fast RSI(5)={fast_rsi} (exhausted). "
                 f"Bearish reversal candle confirmed. "
@@ -267,7 +270,7 @@ class GoldNewsFade:
             confidence = self._score(fast_rsi, spike_atr_ratio, rr, direction)
 
             reasoning = (
-                f"[NEWS FADE] LONG @ {close}: Fading downward spike of {spike_size:.2f} "
+                f"[SPIKE FADE] LONG @ {close}: Fading downward spike of {spike_size:.2f} "
                 f"({float(spike_atr_ratio):.1f}×ATR) from pre-spike {pre_close}. "
                 f"Spike low {spike_extreme}. Fast RSI(5)={fast_rsi} (exhausted). "
                 f"Bullish reversal candle confirmed. "

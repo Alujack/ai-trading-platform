@@ -69,6 +69,10 @@ model Indicator {
   ema50     Decimal? @db.Decimal(18, 8)
   ema200    Decimal? @db.Decimal(18, 8)
   atr       Decimal? @db.Decimal(18, 8)
+  bbLower   Decimal? @db.Decimal(18, 8)
+  bbUpper   Decimal? @db.Decimal(18, 8)
+  bbPctB    Decimal? @db.Decimal(18, 8)
+  adx       Decimal? @db.Decimal(18, 8)
   createdAt DateTime @default(now())
 
   @@unique([symbol, timeframe, timestamp])

@@ -34,7 +34,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from .base import TRENDING, BarWindow, Drawing, IndicatorBar, SignalCandidate
+from .base import RANGING, TRENDING, VOLATILE, BarWindow, Drawing, IndicatorBar, SignalCandidate
 
 
 def _signal_id(symbol: str, timeframe: str, direction: str, bar_ts: datetime) -> str:
@@ -43,15 +43,28 @@ def _signal_id(symbol: str, timeframe: str, direction: str, bar_ts: datetime) ->
 
 
 def _vwap(bars: list[IndicatorBar]) -> Decimal | None:
-    """Session VWAP from the bar window's OHLCV (typical price × volume weighted)."""
+    """Session VWAP from the bar window's OHLCV (typical price × volume weighted).
+
+    Falls back to an equal-weighted (TWAP) average when the window carries no
+    volume at all. The weighting mode is chosen once for the whole window, so a
+    real volume (e.g. 5000) and the weight-1 fallback are never mixed — in volume
+    mode a bar without volume contributes nothing rather than a distorting sample.
+    """
+    has_volume = any(b.volume is not None and b.volume > 0 for b in bars)
     num = Decimal("0")
     den = Decimal("0")
     for b in bars:
-        if b.high is None or b.low is None or b.volume is None:
+        if b.high is None or b.low is None:
             return None
         typical = (b.high + b.low + b.close) / Decimal("3")
-        num += typical * b.volume
-        den += b.volume
+        if has_volume:
+            if b.volume is None or b.volume <= 0:
+                continue
+            weight = b.volume
+        else:
+            weight = Decimal("1")
+        num += typical * weight
+        den += weight
     if den <= 0:
         return None
     return num / den
@@ -88,22 +101,22 @@ def _bollinger_pct_b(
 
 class GoldVwapScalp:
     name = "gold_vwap_scalp"
-    regimes = {TRENDING}
+    regimes = {TRENDING, RANGING, VOLATILE}
     lookback = 120  # ~2h of 1m bars or 10h of 5m bars
 
     def __init__(self, params: dict[str, Any] | None = None) -> None:
         p = params or {}
         # VWAP proximity: price must be within this × ATR of VWAP.
-        self.vwap_band_atr = Decimal(str(p.get("vwapBandAtr", 0.5)))
+        self.vwap_band_atr = Decimal(str(p.get("vwapBandAtr", 2.0)))
         # Bollinger Band %B thresholds.
-        self.bb_low = Decimal(str(p.get("bbLow", 0.2)))   # near lower band for LONG
-        self.bb_high = Decimal(str(p.get("bbHigh", 0.8)))  # near upper band for SHORT
+        self.bb_low = Decimal(str(p.get("bbLow", 0.6)))   # near lower band for LONG
+        self.bb_high = Decimal(str(p.get("bbHigh", 0.4)))  # near upper band for SHORT
         # RSI bounce thresholds.
-        self.rsi_bounce = Decimal(str(p.get("rsiBounce", 35)))       # LONG: RSI was < this
-        self.rsi_bounce_high = Decimal(str(p.get("rsiBounceHigh", 65)))  # SHORT: RSI was > this
+        self.rsi_bounce = Decimal(str(p.get("rsiBounce", 55)))       # LONG: RSI was < this
+        self.rsi_bounce_high = Decimal(str(p.get("rsiBounceHigh", 45)))  # SHORT: RSI was > this
         # ATR-based stop/target.
         self.atr_stop_mult = Decimal(str(p.get("atrStopMult", 1.5)))
-        self.atr_target_mult = Decimal(str(p.get("atrTargetMult", 2.5)))
+        self.atr_target_mult = Decimal(str(p.get("atrTargetMult", 4.0)))
         # Volume confirmation.
         self.vol_lookback = int(p.get("volLookback", 20))
         self.vol_min_ratio = Decimal(str(p.get("volMinRatio", 0.8)))
