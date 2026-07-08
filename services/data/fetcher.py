@@ -124,6 +124,11 @@ async def _fetch_twelvedata(
         "interval": _TWELVEDATA_INTERVAL[timeframe],
         "outputsize": str(size),
         "format": "JSON",
+        # KNOWN BUG (pending fix): TwelveData returns the instrument's "exchange"
+        # timezone (UTC+10 for XAU/EUR, UTC for BTC) and every naive timestamp we
+        # store inherits it. The fix is `"timezone": "UTC"` here — but it MUST be
+        # applied together with the one-off -10h shift of existing XAU/EUR intraday
+        # rows, or the series becomes mixed-timezone. See scalp_sniper session note.
         "apikey": _twelvedata_key(),
     }
     if end_date is not None:
