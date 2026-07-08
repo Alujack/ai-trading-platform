@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import sys
 import json
 import logging
 import os
@@ -120,6 +121,7 @@ def _verdict(target_exp: float, base_mean: float, base_std: float, p_value: floa
 def _evaluate_combo(
     symbol: str, tf: str, bars, cfg: BacktestConfig, target: str,
     target_params: dict | None, seeds: int, baseline_params: dict | None = None,
+    baseline: str = "ict_random_baseline",
 ) -> ComboResult:
     tgt = _stats(target, target_params, bars, symbol, tf, cfg)
 
@@ -130,7 +132,7 @@ def _evaluate_combo(
     exps: list[float] = []
     trade_counts: list[int] = []
     for s in range(seeds):
-        b = _stats("ict_random_baseline", {"seed": s, **base_extra}, bars, symbol, tf, cfg)
+        b = _stats(baseline, {"seed": s, **base_extra}, bars, symbol, tf, cfg)
         exps.append(b.expectancy_r)
         trade_counts.append(b.trades)
 
@@ -202,7 +204,7 @@ async def _run(args: argparse.Namespace) -> int:
             if len(bars) < args.min_bars:
                 log.info("skip %s/%s — only %d bars (<%d)", symbol, tf, len(bars), args.min_bars)
                 continue
-            results.append(_evaluate_combo(symbol, tf, bars, cfg, args.target, target_params, args.seeds, baseline_params))
+            results.append(_evaluate_combo(symbol, tf, bars, cfg, args.target, target_params, args.seeds, baseline_params, args.baseline))
 
     await close_pool()
 
@@ -230,6 +232,7 @@ async def _run(args: argparse.Namespace) -> int:
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--target", default="ict_confluence", help="strategy to test against random (default: ict_confluence)")
+    p.add_argument("--baseline", default="ict_random_baseline", help="frame-matched random-control strategy (default: ict_random_baseline; use scalp_sniper_random for scalp_sniper)")
     p.add_argument("--target-params", dest="target_params", help='JSON param overrides for the target, e.g. \'{"minScore":0.5}\'')
     p.add_argument("--baseline-params", dest="baseline_params", help='JSON FRAME params to mirror onto the random baseline (keep frame matched), e.g. \'{"minRr":3.0}\'')
     p.add_argument("--symbols", nargs="*", help="default: all stored symbols")
@@ -245,6 +248,13 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main() -> None:
+    # Windows consoles default to cp1252 and choke on the report's unicode.
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8")  # type: ignore[union-attr]
+        except Exception:
+            pass
+
     load_dotenv()
     logging.basicConfig(
         level=os.environ.get("LOG_LEVEL", "info").upper(),

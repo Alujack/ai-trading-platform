@@ -54,6 +54,14 @@ def _signal_id(symbol: str, timeframe: str, direction: str, bar_ts: datetime) ->
     return hashlib.sha1(key.encode()).hexdigest()[:24]
 
 
+def _coin(seed: int, ts_iso: str) -> "random.Random":
+    """A per-(seed, bar) RNG, reproducible across processes (PYTHONHASHSEED-proof)."""
+    import random
+
+    digest = hashlib.sha1(f"{seed}|{ts_iso}".encode()).digest()
+    return random.Random(int.from_bytes(digest[:8], "big"))
+
+
 def _rng(b: IndicatorBar) -> Decimal | None:
     if b.high is None or b.low is None:
         return None
@@ -299,5 +307,79 @@ class ScalpSniper:
                 client_id=_signal_id(window.symbol, window.timeframe, direction, latest.timestamp),
                 cooldown_ms=self.cooldown_ms,
                 ai_min_score=self.ai_min_score,
+            )
+        ]
+
+
+class ScalpSniperRandom(ScalpSniper):
+    """Geometry-matched random control for scalp_sniper (build plan §8 pattern).
+
+    Same FRAME — session window, TRENDING regime gate, structural-stop math,
+    RR 2, cooldown — but the direction is a seeded coin flip and every
+    directional filter (burst, expansion, wicks, VWAP, EMA) is bypassed. This is
+    the baseline the sniper's expectancy must beat for its edge to be selection
+    skill rather than the frame itself.
+    """
+
+    name = "scalp_sniper_random"
+    regimes = {TRENDING}  # frame includes the regime gate
+
+    def __init__(self, params: dict[str, Any] | None = None) -> None:
+        p = dict(params or {})
+        self.seed = int(p.pop("seed", 0))
+        self.fire_prob = float(p.pop("fireProb", 1.0))
+        super().__init__(p)
+
+    def evaluate(self, window: BarWindow) -> list[SignalCandidate]:
+        bars = window.bars
+        if len(bars) < self.burst_bars + 2:
+            return []
+        latest = bars[0]
+        if None in (latest.atr, latest.open, latest.high, latest.low):
+            return []
+        atr = latest.atr
+        close = latest.close
+        assert atr is not None
+        if atr <= 0:
+            return []
+
+        if self.session_gate and not self._in_session(latest.timestamp):
+            return []
+
+        rng = _coin(self.seed, latest.timestamp.isoformat())
+        if self.fire_prob < 1.0 and rng.random() >= self.fire_prob:
+            return []
+
+        # The one thing under test: direction is a coin flip, NOT a burst read.
+        direction = "LONG" if rng.random() < 0.5 else "SHORT"
+
+        recent = bars[: self.burst_bars]
+        if direction == "LONG":
+            structural = min((b.low for b in recent if b.low is not None), default=close)
+            stop = min(structural - self.sl_buffer_atr * atr, close - self.sl_min_atr * atr)
+            risk = close - stop
+            target = close + self.rr * risk
+        else:
+            structural = max((b.high for b in recent if b.high is not None), default=close)
+            stop = max(structural + self.sl_buffer_atr * atr, close + self.sl_min_atr * atr)
+            risk = stop - close
+            target = close - self.rr * risk
+        if risk <= 0:
+            return []
+
+        return [
+            SignalCandidate(
+                strategy_name=self.name,
+                symbol=window.symbol,
+                timeframe=window.timeframe,
+                direction=direction,
+                entry=close,
+                stop=stop,
+                target=target,
+                confidence=50,
+                reasoning=f"random-baseline {direction} (seed {self.seed}) in the scalp_sniper frame",
+                client_id=_signal_id(window.symbol, window.timeframe, f"rnd{self.seed}-{direction}", latest.timestamp),
+                cooldown_ms=self.cooldown_ms,
+                ai_min_score=0,
             )
         ]

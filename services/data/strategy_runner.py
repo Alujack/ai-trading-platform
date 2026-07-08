@@ -90,6 +90,7 @@ async def _load_window(
         """
         SELECT c."timestamp" AS bar_ts,
                c."open" AS open, c."high" AS high, c."low" AS low, c."close" AS close,
+               c."volume" AS volume,
                i."rsi" AS rsi, i."ema20" AS ema20, i."ema50" AS ema50,
                i."ema200" AS ema200, i."atr" AS atr
         FROM "Candle" c
@@ -117,6 +118,7 @@ async def _load_window(
             open=r["open"],
             high=r["high"],
             low=r["low"],
+            volume=r["volume"],
         )
         for r in rows
     ]

@@ -24,6 +24,7 @@ const RISK_FIELDS: (keyof EffectiveRiskConfig)[] = [
   "dailyLossLimitPct",
   "maxDrawdownPct",
   "maxOpenTrades",
+  "maxTradesPerDay",
   "maxOpenRiskPct",
   "maxRiskPerCurrencyPct",
   "newsBeforeMin",

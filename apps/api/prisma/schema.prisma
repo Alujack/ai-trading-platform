@@ -193,6 +193,7 @@ model RiskConfig {
   dailyLossLimitPct     Decimal? @db.Decimal(7, 4)
   maxDrawdownPct        Decimal? @db.Decimal(7, 4)
   maxOpenTrades         Int?
+  maxTradesPerDay       Int?
   maxOpenRiskPct        Decimal? @db.Decimal(7, 4)
   maxRiskPerCurrencyPct Decimal? @db.Decimal(7, 4)
   newsBeforeMin         Int?

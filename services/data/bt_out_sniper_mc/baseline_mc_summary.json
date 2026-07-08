@@ -1,0 +1,21 @@
+[
+  {
+    "symbol": "XAUUSD",
+    "timeframe": "1min",
+    "bars": 26537,
+    "target_strategy": "scalp_sniper",
+    "target_trades": 49,
+    "target_expectancy_r": 0.45895628670813593,
+    "target_profit_factor": 1.66268208548602,
+    "target_total_r": 22.48885804869866,
+    "baseline_seeds": 200,
+    "baseline_mean_trades": 60.205,
+    "baseline_mean_expectancy_r": -0.41834386438411253,
+    "baseline_std_expectancy_r": 0.18344861564001136,
+    "baseline_p5_expectancy_r": -0.7293533720055397,
+    "baseline_p50_expectancy_r": -0.4224360209860554,
+    "baseline_p95_expectancy_r": -0.1345390000817381,
+    "p_value": 0.0,
+    "verdict": "TRADEABLE EDGE: positive expectancy (+0.459R) AND beats 100% of random (p=0.000)."
+  }
+]

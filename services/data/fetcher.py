@@ -1,20 +1,27 @@
 """OHLCV fetcher with per-symbol provider routing.
 
-XAUUSD goes through Twelve Data (Alpha Vantage's free tier does not support gold).
-EURUSD and BTCUSD go through Alpha Vantage's free daily endpoints.
+CANDLE_SOURCE=mt5 routes live fetches through the local MT5 bridge (broker-
+accurate OHLCV straight from the trading account, UTC timestamps, no rate
+limits), falling back to the HTTP providers below when the bridge/terminal is
+down. Otherwise: XAUUSD/EURUSD/BTCUSD via Twelve Data; Alpha Vantage remains
+as a secondary provider option.
 """
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
 import httpx
 
 from db import CandleRow
+
+log = logging.getLogger("data.fetcher")
 
 # ---- Rate limiting --------------------------------------------------------
 # Twelve Data's free tier allows ~8 requests/min. The worker runs several
@@ -67,6 +74,14 @@ async def fetch_candles(
     uses the small default; backfill passes the free-tier max (5000) to pull far
     more history per credit.
     """
+    # Broker feed first when enabled. end_date paging isn't supported by the
+    # bridge, so backfill scripts always take the HTTP-provider path.
+    if _mt5_enabled() and end_date is None:
+        try:
+            return await _fetch_mt5(client, symbol, timeframe, count=output_size)
+        except Exception as exc:  # noqa: BLE001 — bridge/terminal down; use fallback
+            log.warning("mt5_fetch_failed symbol=%s tf=%s err=%s — falling back", symbol, timeframe, exc)
+
     provider = PROVIDER_BY_SYMBOL.get(symbol)
     if provider == "twelvedata":
         return await _fetch_twelvedata(
@@ -75,6 +90,62 @@ async def fetch_candles(
     if provider == "alpha_vantage":
         return await _fetch_alpha_vantage(client, symbol, timeframe)
     raise ValueError(f"No provider configured for symbol {symbol}")
+
+
+# ---- MT5 bridge (broker feed) ----------------------------------------------
+
+def _mt5_enabled() -> bool:
+    return os.environ.get("CANDLE_SOURCE", "").strip().lower() == "mt5"
+
+
+def _mt5_symbol(symbol: str) -> str:
+    """Platform symbol → broker Market Watch name (e.g. XAUUSD → XAUUSDm).
+
+    Shares BROKER_SYMBOL_MAP with the API's execution layer so data and orders
+    can never disagree on the broker symbol.
+    """
+    raw = os.environ.get("BROKER_SYMBOL_MAP", "")
+    if raw:
+        try:
+            mapped = json.loads(raw).get(symbol)
+            if isinstance(mapped, str) and mapped:
+                return mapped
+        except (ValueError, AttributeError):
+            log.warning("broker_symbol_map_invalid raw=%r", raw)
+    return symbol
+
+
+async def _fetch_mt5(
+    client: httpx.AsyncClient, symbol: str, timeframe: str, *, count: int = 100
+) -> list[CandleRow]:
+    base = os.environ.get("MT5_BRIDGE_URL", "").rstrip("/")
+    if not base:
+        raise RuntimeError("MT5_BRIDGE_URL is not set in environment")
+    resp = await client.get(
+        f"{base}/candles/{_mt5_symbol(symbol)}",
+        params={"timeframe": timeframe, "count": max(1, min(int(count), 5000))},
+        headers={"X-Bridge-Token": os.environ.get("MT5_BRIDGE_TOKEN", "")},
+        timeout=30.0,
+    )
+    resp.raise_for_status()
+    rows: list[CandleRow] = []
+    for entry in resp.json():
+        # Bridge timestamps are epoch seconds in UTC (Exness server = UTC+0);
+        # store naive UTC to match the (post-shift) TwelveData series.
+        ts = datetime.fromtimestamp(int(entry["timestamp"]), tz=timezone.utc).replace(tzinfo=None)
+        rows.append(
+            CandleRow(
+                symbol=symbol,
+                timeframe=timeframe,
+                timestamp=ts,
+                open=Decimal(str(entry["open"])),
+                high=Decimal(str(entry["high"])),
+                low=Decimal(str(entry["low"])),
+                close=Decimal(str(entry["close"])),
+                volume=Decimal(str(entry.get("volume") or 0)),
+            )
+        )
+    return rows
 
 
 # ---- Twelve Data ----------------------------------------------------------
@@ -124,11 +195,11 @@ async def _fetch_twelvedata(
         "interval": _TWELVEDATA_INTERVAL[timeframe],
         "outputsize": str(size),
         "format": "JSON",
-        # KNOWN BUG (pending fix): TwelveData returns the instrument's "exchange"
-        # timezone (UTC+10 for XAU/EUR, UTC for BTC) and every naive timestamp we
-        # store inherits it. The fix is `"timezone": "UTC"` here — but it MUST be
-        # applied together with the one-off -10h shift of existing XAU/EUR intraday
-        # rows, or the series becomes mixed-timezone. See scalp_sniper session note.
+        # Everything is stored as naive UTC. Without this param TwelveData
+        # returns the instrument's "exchange" timezone (UTC+10 for XAU/EUR) —
+        # the pre-2026-07-08 rows were stored that way and were shifted -10h in
+        # a one-off migration when the MT5 bridge became the primary source.
+        "timezone": "UTC",
         "apikey": _twelvedata_key(),
     }
     if end_date is not None:

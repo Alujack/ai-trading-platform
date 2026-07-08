@@ -90,23 +90,27 @@ async function portfolioCapBlock(signal: Signal): Promise<string | null> {
   const cfg = await resolveRiskConfig(signal.strategyName, signal.symbol);
   const { accountBalance } = readAccount();
 
-  // Sticky rule: one trade per day, then stop. Count every trade opened since
-  // 00:00 UTC regardless of status (an open OR already-closed trade still uses
-  // up the day's single shot). New UTC day → fresh setup allowed.
+  // Frequency caps are PER-STRATEGY: each strategy's maxTradesPerDay /
+  // maxOpenTrades meters its own trades (a stacking scalper taking its 5th add
+  // must not consume a swing strategy's one-a-day shot, and vice versa).
+  // Exposure caps below (open risk, per-currency) stay PORTFOLIO-WIDE.
   const startOfDay = new Date();
   startOfDay.setUTCHours(0, 0, 0, 0);
-  const openedToday = await prisma.trade.count({ where: { openedAt: { gte: startOfDay } } });
+  const openedToday = await prisma.trade.count({
+    where: { openedAt: { gte: startOfDay }, signal: { strategyName: signal.strategyName } },
+  });
   if (openedToday >= cfg.maxTradesPerDay) {
     return `daily trade limit reached (${openedToday}/${cfg.maxTradesPerDay}) — stopped for today`;
   }
 
   const open = await prisma.trade.findMany({
     where: { status: "OPEN" },
-    include: { signal: { select: { symbol: true } } },
+    include: { signal: { select: { symbol: true, strategyName: true } } },
   });
 
-  if (open.length >= cfg.maxOpenTrades) {
-    return `max open trades reached (${open.length}/${cfg.maxOpenTrades})`;
+  const openSameStrategy = open.filter((t) => t.signal.strategyName === signal.strategyName);
+  if (openSameStrategy.length >= cfg.maxOpenTrades) {
+    return `max open trades reached (${openSameStrategy.length}/${cfg.maxOpenTrades})`;
   }
 
   const thisRisk = accountBalance * (cfg.riskPerTradePct / 100);

@@ -30,7 +30,9 @@ SYMBOLS = list(SYMBOL_MAP.keys())  # XAUUSD, EURUSD, BTCUSD
 # inside the per-minute limit but exceed the 800/day cap after ~13 hours of
 # continuous running on free tier.
 TIMEFRAME_PERIOD_SECONDS: dict[str, int] = {
-    "1min": 5 * 60,
+    # 60s 1min ingestion when the broker feed is on (free + real-time); the
+    # conservative 5-min period otherwise keeps TwelveData under its daily cap.
+    "1min": 60 if os.environ.get("CANDLE_SOURCE", "").strip().lower() == "mt5" else 5 * 60,
     "5min": 15 * 60,
     "15min": 30 * 60,
     "60min": 60 * 60,
@@ -38,7 +40,9 @@ TIMEFRAME_PERIOD_SECONDS: dict[str, int] = {
 }
 
 # Strategy runner cadence (matches the retired TS signal cron's 15-min tick).
-STRATEGY_PERIOD_SECONDS = 15 * 60
+# Override via env for scalp timeframes: a 1min strategy needs ~60s scans, which
+# is only viable when CANDLE_SOURCE=mt5 (no HTTP-provider rate limits).
+STRATEGY_PERIOD_SECONDS = int(os.environ.get("STRATEGY_PERIOD_SECONDS", 15 * 60))
 
 # Where to ping the API so it can push realtime updates to the dashboard (SSE).
 _API_BASE = os.environ.get("API_PUBLIC_URL", "http://localhost:4000").rstrip("/")

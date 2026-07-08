@@ -10,6 +10,7 @@
  * is unchanged and still runs when BROKER=paper.
  */
 import type { Prisma } from "@prisma/client";
+import { resolveRiskConfig } from "../config/resolve";
 import { getBroker, lotsFromUnits } from "./broker";
 import { prisma } from "../lib/prisma";
 import { publishEvent } from "../lib/realtime";
@@ -79,7 +80,11 @@ export async function openLiveTrade(signalId: string): Promise<OpenResult> {
     return { status: "skipped", reason: `broker_spec_error: ${msg}` };
   }
 
-  const riskPercent = Number(process.env.PAPER_RISK_PERCENT ?? "1");
+  // Per-strategy risk % (STRATEGY-scope RiskConfig) so a stacking scalper can
+  // size each add small while swing strategies keep their own risk. Falls back
+  // to the global env when no scoped config exists.
+  const cfg = await resolveRiskConfig(signal.strategyName, signal.symbol);
+  const riskPercent = cfg.riskPerTradePct ?? Number(process.env.PAPER_RISK_PERCENT ?? "1");
   const riskAmount = balance * (riskPercent / 100);
 
   // Correct lot sizing: risk$ ÷ (stop-distance-in-ticks × tick-value-per-lot)
