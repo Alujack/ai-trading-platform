@@ -70,6 +70,15 @@ PARAM_GRIDS: dict[str, dict[str, list]] = {
         "atrTargetMult": [2.0, 3.0, 4.0],
         "maxExtAtr": [1.5, 2.0, 2.5],
     },
+    # scalp_sniper: SINGLE-POINT grid, deliberately. The session window is the
+    # playbook's London→NY liquidity rule shifted +10h to match the stored
+    # candle timezone (TwelveData exchange time, not UTC — see the timestamp
+    # bug note in bt_out_sniper artifacts). Nothing is being optimized; walk-
+    # forward here is a pure OOS consistency test of the fixed live config.
+    "scalp_sniper": {
+        "sessionStartNy": [12],
+        "sessionEndNy": [20],
+    },
 }
 DEFAULT_STRATEGIES = ["trend_ema", "meanrev_rsi"]
 DEFAULT_TIMEFRAMES = ["60min"]

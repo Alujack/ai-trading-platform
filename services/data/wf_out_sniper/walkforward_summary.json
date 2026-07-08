@@ -1,0 +1,20 @@
+[
+  {
+    "strategy": "scalp_sniper",
+    "symbol": "XAUUSD",
+    "timeframe": "1min",
+    "optimized": true,
+    "objective": "expectancy_r",
+    "folds": 14,
+    "profitable_folds": 6,
+    "walk_forward_efficiency": 2.015655164758209,
+    "oos_trades": 34,
+    "oos_win_rate": 0.47058823529411764,
+    "oos_profit_factor": 1.77200879133089,
+    "oos_expectancy_r": 0.507513895023014,
+    "oos_total_r": 17.255472430782476,
+    "oos_max_drawdown_r": 7.185506061046634,
+    "oos_max_consecutive_losses": 6,
+    "oos_sharpe_per_trade": 1.5132691784968082
+  }
+]

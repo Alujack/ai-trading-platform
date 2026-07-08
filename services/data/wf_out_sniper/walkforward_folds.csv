@@ -1,0 +1,15 @@
+strategy,symbol,timeframe,fold,is_len,oos_len,oos_trades,oos_win_rate,oos_profit_factor,oos_expectancy_r,oos_total_r,params
+scalp_sniper,XAUUSD,1min,0,4000,1500,0,0.0000,0.0,0.0000,0.0000,sessionStartNy=12;sessionEndNy=20
+scalp_sniper,XAUUSD,1min,1,4000,1500,0,0.0000,0.0,0.0000,0.0000,sessionStartNy=12;sessionEndNy=20
+scalp_sniper,XAUUSD,1min,2,4000,1500,4,0.5000,2.9443410520830438,1.1912,4.7647,sessionStartNy=12;sessionEndNy=20
+scalp_sniper,XAUUSD,1min,3,4000,1500,5,0.4000,1.4522261403683343,0.3723,1.8617,sessionStartNy=12;sessionEndNy=20
+scalp_sniper,XAUUSD,1min,4,4000,1500,4,0.2500,0.395573978979681,-0.5395,-2.1581,sessionStartNy=12;sessionEndNy=20
+scalp_sniper,XAUUSD,1min,5,4000,1500,6,0.5000,1.9325904443992978,0.5980,3.5879,sessionStartNy=12;sessionEndNy=20
+scalp_sniper,XAUUSD,1min,6,4000,1500,1,0.0000,0.0,-1.1225,-1.1225,sessionStartNy=12;sessionEndNy=20
+scalp_sniper,XAUUSD,1min,7,4000,1500,0,0.0000,0.0,0.0000,0.0000,sessionStartNy=12;sessionEndNy=20
+scalp_sniper,XAUUSD,1min,8,4000,1500,2,0.0000,0.0,-1.1881,-2.3762,sessionStartNy=12;sessionEndNy=20
+scalp_sniper,XAUUSD,1min,9,4000,1500,2,0.5000,2.9827874647508454,1.2557,2.5114,sessionStartNy=12;sessionEndNy=20
+scalp_sniper,XAUUSD,1min,10,4000,1500,4,0.7500,6.293612052202208,1.4453,5.7812,sessionStartNy=12;sessionEndNy=20
+scalp_sniper,XAUUSD,1min,11,4000,1500,3,1.0000,inf,1.8926,5.6779,sessionStartNy=12;sessionEndNy=20
+scalp_sniper,XAUUSD,1min,12,4000,1500,3,0.3333,0.5241483146438591,-0.4242,-1.2727,sessionStartNy=12;sessionEndNy=20
+scalp_sniper,XAUUSD,1min,13,4000,1500,0,0.0000,0.0,0.0000,0.0000,sessionStartNy=12;sessionEndNy=20

@@ -143,6 +143,8 @@ async def _run(args: argparse.Namespace) -> int:
     strategies = args.strategies or DEFAULT_STRATEGIES
     start = _parse_date(args.start)
     end = _parse_date(args.end)
+    # Optional param overrides (same dict for every strategy in the run).
+    strat_params: dict | None = json.loads(args.params) if getattr(args, "params", None) else None
 
     results: list[RunResult] = []
     metrics: list[Metrics] = []
@@ -155,7 +157,7 @@ async def _run(args: argparse.Namespace) -> int:
                 if not bars:
                     log.info("no_data strategy=%s symbol=%s tf=%s", strat_name, symbol, tf)
                     continue
-                strategy = build_strategy(strat_name, None)
+                strategy = build_strategy(strat_name, strat_params)
                 result = simulate(strategy, bars, symbol, tf, cfg)
                 results.append(result)
                 metrics.append(summarize(result))
@@ -244,6 +246,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         dest="no_regime_gate",
         help="disable the regime gate (measures the un-gated strategy; live trades ARE gated)",
+    )
+    p.add_argument(
+        "--params",
+        type=str,
+        help='JSON dict of strategy params applied to every strategy in the run, e.g. \'{"sessionStartNy": 12}\'',
     )
     p.add_argument("--out", type=str, help="directory to write trades.csv + summary.json")
     p.add_argument("--save-db", action="store_true", dest="save_db", help="persist this run to the BacktestRun table (shows in the dashboard)")

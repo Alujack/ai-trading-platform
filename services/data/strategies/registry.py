@@ -16,6 +16,7 @@ from .gold_zigzag_reversal import GoldZigzagReversal, GoldZigzagReversalDaily
 from .ict import IctConfluence, IctFvg, IctOrderBlock, IctRandomBaseline, IctSweepMss
 from .meanrev_rsi import MeanRevRsi
 from .scalp_ema import ScalpEma
+from .scalp_sniper import ScalpSniper
 from .scalp_vwap import ScalpVwap
 from .trend_ema import TrendEma
 
@@ -26,6 +27,9 @@ STRATEGY_FACTORIES: dict[str, Callable[[dict[str, Any] | None], Strategy]] = {
     # VWAP-anchored momentum scalp — the aggressive-scalper skill's entry brain,
     # regime-gated to TRENDING only (skips chop/news). See scalp_vwap.py.
     "scalp_vwap": ScalpVwap,
+    # Momentum-burst continuation (the skill's stacking entry): 3-bar burst +
+    # range expansion + wick/blow-off/extension vetos + VWAP slope agreement.
+    "scalp_sniper": ScalpSniper,
     # ICT detector family (build plan §3) — multi-bar, full-OHLC price-action.
     "ict_sweep_mss": IctSweepMss,
     "ict_order_block": IctOrderBlock,
