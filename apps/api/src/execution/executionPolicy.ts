@@ -39,18 +39,22 @@ function num(v: { toString(): string } | null | undefined): number {
   return v == null ? 0 : Number(v.toString());
 }
 
-/** Today's realized loss (UTC), as a positive number. */
-async function todayRealizedLoss(): Promise<number> {
+/** Today's realized P&L (UTC): net, and gross loss as a positive number. */
+async function todayRealizedPnl(): Promise<{ net: number; loss: number }> {
   const startOfDay = new Date();
   startOfDay.setUTCHours(0, 0, 0, 0);
   const trades = await prisma.trade.findMany({
     where: { status: "CLOSED", closedAt: { gte: startOfDay } },
     select: { profitLoss: true },
   });
-  return trades.reduce((sum, t) => {
+  let net = 0;
+  let loss = 0;
+  for (const t of trades) {
     const pl = num(t.profitLoss);
-    return pl < 0 ? sum + Math.abs(pl) : sum;
-  }, 0);
+    net += pl;
+    if (pl < 0) loss += Math.abs(pl);
+  }
+  return { net, loss };
 }
 
 /**
@@ -61,10 +65,20 @@ export async function isBreakerTrippedToday(): Promise<{ tripped: boolean; reaso
   const cfg = await resolveRiskConfig();
   const { accountBalance, peakBalance } = readAccount();
 
-  const loss = await todayRealizedLoss();
+  const { net, loss } = await todayRealizedPnl();
   const dailyLimit = accountBalance * (cfg.dailyLossLimitPct / 100);
   if (loss > dailyLimit) {
     return { tripped: true, reason: `daily-loss ${loss.toFixed(0)} > limit ${dailyLimit.toFixed(0)}` };
+  }
+
+  // Profit target: bank the green day. Realized-only, so an open trade still
+  // runs to its own exit — the breaker only stops NEW trades until next UTC day.
+  const profitTarget = accountBalance * (cfg.dailyProfitTargetPct / 100);
+  if (net >= profitTarget) {
+    return {
+      tripped: true,
+      reason: `daily profit target hit (+$${net.toFixed(2)} >= $${profitTarget.toFixed(2)}) — done for today`,
+    };
   }
 
   // Drawdown from peak using realized equity.

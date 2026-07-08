@@ -9,6 +9,7 @@ export interface EffectiveRiskConfig {
   riskPerTradePct: number;
   minRR: number;
   dailyLossLimitPct: number;
+  dailyProfitTargetPct: number;
   maxDrawdownPct: number;
   maxOpenTrades: number;
   maxTradesPerDay: number;
@@ -24,6 +25,9 @@ export const RISK_DEFAULTS: EffectiveRiskConfig = {
   riskPerTradePct: Number(process.env.PAPER_RISK_PERCENT ?? "1"),
   minRR: 2,
   dailyLossLimitPct: 3,
+  // Sticky rule: bank the green day. Once today's realized P&L reaches this %
+  // of balance, the breaker holds all new trades until the next UTC day.
+  dailyProfitTargetPct: Number(process.env.DAILY_PROFIT_TARGET_PCT ?? "2"),
   maxDrawdownPct: 10,
   // Sticky rule: one trade at a time. Risk 1% to make 2% (riskPerTradePct=1,
   // minRR=2). Override per env if you ever want concurrency back.
@@ -46,6 +50,7 @@ export const RISK_BOUNDS: Record<keyof EffectiveRiskConfig, { min: number; max: 
   riskPerTradePct: { min: 0.01, max: 5 },
   minRR: { min: 1, max: 10 },
   dailyLossLimitPct: { min: 0.1, max: 50 },
+  dailyProfitTargetPct: { min: 0.1, max: 100 },
   maxDrawdownPct: { min: 0.1, max: 100 },
   maxOpenTrades: { min: 1, max: 100, int: true },
   maxTradesPerDay: { min: 1, max: 100, int: true },

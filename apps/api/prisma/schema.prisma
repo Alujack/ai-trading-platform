@@ -191,6 +191,7 @@ model RiskConfig {
   riskPerTradePct       Decimal? @db.Decimal(7, 4)
   minRR                 Decimal? @db.Decimal(7, 4)
   dailyLossLimitPct     Decimal? @db.Decimal(7, 4)
+  dailyProfitTargetPct  Decimal? @db.Decimal(7, 4)
   maxDrawdownPct        Decimal? @db.Decimal(7, 4)
   maxOpenTrades         Int?
   maxTradesPerDay       Int?
