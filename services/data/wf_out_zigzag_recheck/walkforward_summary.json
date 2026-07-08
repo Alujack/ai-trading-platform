@@ -1,0 +1,38 @@
+[
+  {
+    "strategy": "gold_zigzag_reversal_daily",
+    "symbol": "XAUUSD",
+    "timeframe": "15min",
+    "optimized": false,
+    "objective": "expectancy_r",
+    "folds": 97,
+    "profitable_folds": 49,
+    "walk_forward_efficiency": null,
+    "oos_trades": 412,
+    "oos_win_rate": 0.25728155339805825,
+    "oos_profit_factor": 1.1092810306145557,
+    "oos_expectancy_r": 0.08780439000454164,
+    "oos_total_r": 36.175408681871154,
+    "oos_max_drawdown_r": 35.13912875372023,
+    "oos_max_consecutive_losses": 16,
+    "oos_sharpe_per_trade": 0.7979078053140655
+  },
+  {
+    "strategy": "gold_zigzag_reversal",
+    "symbol": "XAUUSD",
+    "timeframe": "15min",
+    "optimized": false,
+    "objective": "expectancy_r",
+    "folds": 97,
+    "profitable_folds": 16,
+    "walk_forward_efficiency": null,
+    "oos_trades": 80,
+    "oos_win_rate": 0.2375,
+    "oos_profit_factor": 1.27992330591401,
+    "oos_expectancy_r": 0.22799958836700523,
+    "oos_total_r": 18.239967069360418,
+    "oos_max_drawdown_r": 17.765411336861334,
+    "oos_max_consecutive_losses": 18,
+    "oos_sharpe_per_trade": 0.8087007674002067
+  }
+]

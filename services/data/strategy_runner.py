@@ -197,8 +197,24 @@ async def run_once(client: httpx.AsyncClient) -> int:
         # Multi-bar price-action detectors (ICT) declare how much trailing OHLC
         # history they need; close-only strategies omit it and use a small window.
         bars_needed = max(RUNNER_LOOKBACK_BARS, int(getattr(strategy, "lookback", 1)))
+        # Optional per-strategy scoping via Strategy table params: a strategy only
+        # validated on certain symbols/timeframes restricts itself with e.g.
+        # {"symbols": ["XAUUSD"], "timeframes": ["15min"]}. Empty/absent = no
+        # restriction (today's behaviour). Strategy __init__s ignore unknown keys.
+        only_symbols = {
+            s.strip().upper() for s in params.get("symbols", []) if isinstance(s, str) and s.strip()
+        }
+        only_timeframes = {
+            normalize_timeframe(t.strip())
+            for t in params.get("timeframes", [])
+            if isinstance(t, str) and t.strip()
+        }
         for symbol in symbols:
+            if only_symbols and symbol not in only_symbols:
+                continue
             for timeframe in timeframes:
+                if only_timeframes and timeframe not in only_timeframes:
+                    continue
                 window = await _load_window(pool, symbol, timeframe, bars_needed)
                 if not window.bars:
                     continue

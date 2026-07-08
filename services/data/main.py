@@ -66,6 +66,9 @@ def _configure_logging() -> None:
         format="%(asctime)sZ %(levelname)s %(name)s %(message)s",
     )
     logging.Formatter.converter = lambda *_: datetime.now(timezone.utc).timetuple()
+    # httpx logs request URLs (incl. ?apikey=...) at INFO — never leak the key.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 async def _fetch_and_store(

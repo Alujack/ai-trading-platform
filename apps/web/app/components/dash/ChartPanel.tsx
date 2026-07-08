@@ -115,7 +115,20 @@ export function ChartPanel({
       rightPriceScale: { borderColor: "rgba(255,255,255,0.08)" },
       timeScale: { borderColor: "rgba(255,255,255,0.08)", timeVisible: true, secondsVisible: false },
       crosshair: { mode: 0 },
+      // Don't hijack the page: plain mouse-wheel scrolls the page as normal.
+      // Chart zoom is opt-in — hold Ctrl (see the key listeners below) or drag.
+      handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+      handleScale: { mouseWheel: false, pinch: true, axisPressedMouseMove: true, axisDoubleClickReset: true },
     });
+    // Ctrl toggles wheel-zoom on the chart (and suppresses the browser's page
+    // zoom while over it); releasing Ctrl gives the wheel back to page scroll.
+    const setWheelZoom = (on: boolean) =>
+      chart.applyOptions({ handleScale: { mouseWheel: on } });
+    const onKey = (e: KeyboardEvent) => setWheelZoom(e.ctrlKey);
+    const onBlur = () => setWheelZoom(false);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("keyup", onKey);
+    window.addEventListener("blur", onBlur);
     const series = chart.addCandlestickSeries({
       upColor: C.up,
       downColor: C.down,
@@ -127,6 +140,9 @@ export function ChartPanel({
     seriesRef.current = series;
     linesRef.current = [];
     return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keyup", onKey);
+      window.removeEventListener("blur", onBlur);
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
@@ -218,6 +234,22 @@ export function ChartPanel({
             No active signal — waiting for a setup
           </div>
         )}
+        <div
+          style={{
+            position: "absolute",
+            left: 12,
+            bottom: 10,
+            pointerEvents: "none",
+            fontSize: 10,
+            fontFamily: mono,
+            color: C.muted2,
+            background: "rgba(10,11,14,0.6)",
+            borderRadius: 5,
+            padding: "2px 8px",
+          }}
+        >
+          drag to pan · ctrl+scroll to zoom
+        </div>
       </div>
 
       <div style={{ display: "flex", gap: 10, padding: "12px 16px", borderTop: `1px solid ${C.line}`, overflowX: "auto" }}>

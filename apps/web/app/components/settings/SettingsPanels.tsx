@@ -38,7 +38,7 @@ export function SettingsPanels() {
   });
 
   return (
-    <div className="mx-auto grid max-w-3xl grid-cols-1 gap-5">
+    <div className="flex w-full flex-col gap-5">
       <SettingsGroup
         title="AI providers"
         subtitle="Paste a key, test it, then switch. Keys are stored locally, never committed."

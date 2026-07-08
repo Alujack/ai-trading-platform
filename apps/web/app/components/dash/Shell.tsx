@@ -42,7 +42,17 @@ export function Shell({ children }: { children: React.ReactNode }) {
             onAiClick={openSettings}
             rtStatus={rtStatus}
           />
-          <main style={{ padding: "18px 24px 32px", display: "flex", flexDirection: "column", gap: 16 }}>
+          <main
+            style={{
+              padding: "18px 24px 40px",
+              display: "flex",
+              flexDirection: "column",
+              gap: 16,
+              width: "100%",
+              maxWidth: 1720,
+              margin: "0 auto",
+            }}
+          >
             {children}
           </main>
         </div>

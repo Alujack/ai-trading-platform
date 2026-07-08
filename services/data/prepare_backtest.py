@@ -133,6 +133,9 @@ def main() -> None:
         level=os.environ.get("LOG_LEVEL", "info").upper(),
         format="%(asctime)sZ %(levelname)s %(name)s %(message)s",
     )
+    # httpx logs request URLs (incl. ?apikey=...) at INFO — never leak the key.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     if "DATABASE_URL" not in os.environ:
         raise RuntimeError("DATABASE_URL is not set in environment")
     if not args.skip_backfill and not os.environ.get("TWELVEDATA_API_KEY"):

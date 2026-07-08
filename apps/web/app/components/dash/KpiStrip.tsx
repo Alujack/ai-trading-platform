@@ -57,7 +57,7 @@ export function KpiStrip() {
   ];
 
   return (
-    <section style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 12 }}>
+    <section className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
       {kpis.map((k) => (
         <div
           key={k.label}

@@ -123,6 +123,9 @@ services:
       - NODE_ENV=development
       - WEB_PORT=3000
       - NEXT_PUBLIC_API_URL=http://localhost:4000
+      # Windows bind mounts don't propagate inotify events into the container —
+      # poll so next dev hot-reloads on host-side edits.
+      - WATCHPACK_POLLING=true
     ports:
       - "${WEB_PORT:-3100}:3000"
     volumes:

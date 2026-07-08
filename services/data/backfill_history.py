@@ -101,6 +101,10 @@ async def _cli() -> None:
         level=os.environ.get("LOG_LEVEL", "info").upper(),
         format="%(asctime)sZ %(levelname)s %(name)s %(message)s",
     )
+    # httpx logs every request URL at INFO — including ?apikey=... Keep it quiet
+    # so the TwelveData key never lands in logs/console.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     for var in ("DATABASE_URL", "TWELVEDATA_API_KEY"):
         if var not in os.environ:
             raise RuntimeError(f"{var} is not set in environment")
