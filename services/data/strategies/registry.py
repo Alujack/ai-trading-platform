@@ -12,7 +12,7 @@ from .gold_asian_breakout import GoldAsianBreakout
 from .gold_london_sweep import GoldLondonSweep
 from .gold_news_fade import GoldNewsFade
 from .gold_vwap_scalp import GoldVwapScalp
-from .gold_zigzag_reversal import GoldZigzagReversal, GoldZigzagReversalDaily
+from .gold_zigzag_reversal import GoldZigzagReversal, GoldZigzagReversalDaily, GoldZigzagScalp
 from .ict import IctConfluence, IctFvg, IctOrderBlock, IctRandomBaseline, IctSweepMss
 from .meanrev_rsi import MeanRevRsi
 from .scalp_ema import ScalpEma
@@ -58,6 +58,10 @@ STRATEGY_FACTORIES: dict[str, Callable[[dict[str, Any] | None], Strategy]] = {
     # Higher-frequency ZigZag tuning: ~1.2 trades/day on XAUUSD 15min (thinner
     # per-trade edge). For when daily activity matters more than max expectancy.
     "gold_zigzag_reversal_daily": GoldZigzagReversalDaily,
+    # Aggressive high-frequency scalp tuning of the ZigZag engine: fixed tight
+    # ATR take-profit, shallow pivots, all regimes. Max frequency, thinnest edge
+    # — measure it honestly with the backtester before trusting it.
+    "gold_zigzag_scalp": GoldZigzagScalp,
 }
 
 

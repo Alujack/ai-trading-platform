@@ -79,6 +79,12 @@ class GoldZigzagReversal:
         self.rsi_os = Decimal(str(p.get("rsiOversold", 40)))
         # Minimum RR to emit a signal.
         self.min_rr = Decimal(str(p.get("minRr", 1.8)))
+        # Scalp mode: when set, the target is a FIXED distance (targetAtr × ATR)
+        # from entry instead of the prior opposing pivot, and no prior pivot is
+        # required. This turns the reversal into a quick take-profit scalp. Left
+        # as None (default) the strategy uses the structural pivot target.
+        _tatr = p.get("targetAtr")
+        self.target_atr = Decimal(str(_tatr)) if _tatr is not None else None
         self.ai_min_score = int(p.get("aiMinScore", 65))
         self.cooldown_ms = int(p.get("cooldownMs", 30 * 60 * 1000))  # 30 min
 
@@ -136,12 +142,13 @@ class GoldZigzagReversal:
         if pivot_idx > self.depth + self.max_pivot_age:
             return []
 
-        # Previous opposing pivot supplies the structural target.
+        # Target: structural (prior opposing pivot) by default, or a fixed
+        # targetAtr × ATR take-profit in scalp mode. In scalp mode a prior pivot
+        # is not required — the scalp exits at a set distance, not at structure.
         opposite = "L" if pivot_type == "H" else "H"
         prior = next((pv for pv in pivots[1:] if pv[1] == opposite), None)
-        if prior is None:
+        if self.target_atr is None and prior is None:
             return []
-        target = prior[2]
 
         rsi = self._rsi_near_pivot(bars, pivot_idx)
 
@@ -154,11 +161,12 @@ class GoldZigzagReversal:
                 return []  # move already ran — too late to enter
             if rsi is not None and rsi < self.rsi_ob:
                 return []  # no momentum exhaustion at the pivot
-            if target >= close:
-                return []  # target must sit below a short entry
 
             direction = "SHORT"
             stop = pivot_price + self.atr_buffer * atr
+            target = (close - self.target_atr * atr) if self.target_atr is not None else prior[2]
+            if target >= close:
+                return []  # target must sit below a short entry
             risk = stop - close
             reward = close - target
         else:
@@ -170,11 +178,12 @@ class GoldZigzagReversal:
                 return []
             if rsi is not None and rsi > self.rsi_os:
                 return []
-            if target <= close:
-                return []
 
             direction = "LONG"
             stop = pivot_price - self.atr_buffer * atr
+            target = (close + self.target_atr * atr) if self.target_atr is not None else prior[2]
+            if target <= close:
+                return []
             risk = close - stop
             reward = target - close
 
@@ -184,27 +193,34 @@ class GoldZigzagReversal:
         if rr < self.min_rr:
             return []
 
-        leg_atr = abs(pivot_price - prior[2]) / atr
+        leg_atr = abs(pivot_price - prior[2]) / atr if prior is not None else Decimal("0")
         confidence = self._score(rsi, rr, leg_atr, direction)
 
         rsi_str = f"{rsi}" if rsi is not None else "n/a"
+        if self.target_atr is not None:
+            tp_desc = f"{self.target_atr}×ATR scalp TP"
+            tag = "ZIGZAG SCALP"
+        else:
+            tp_desc = f"prior {'low' if opposite == 'L' else 'high'} pivot"
+            tag = "ZIGZAG REVERSAL"
         reasoning = (
-            f"[ZIGZAG REVERSAL] {direction} @ {close}: confirmed swing "
+            f"[{tag}] {direction} @ {close}: confirmed swing "
             f"{'high' if pivot_type == 'H' else 'low'} pivot at {pivot_price} "
             f"({pivot_idx} bars back, depth {self.depth}); price rejected "
             f"{float(distance / atr):.2f}×ATR off it. RSI={rsi_str}. "
             f"SL={stop:.2f} (pivot {'+' if direction == 'SHORT' else '-'} "
-            f"{self.atr_buffer}×ATR), TP={target:.2f} (prior "
-            f"{'low' if opposite == 'L' else 'high'} pivot). "
-            f"RR 1:{float(rr):.1f}. Last swing leg {float(leg_atr):.1f}×ATR."
+            f"{self.atr_buffer}×ATR), TP={target:.2f} ({tp_desc}). "
+            f"RR 1:{float(rr):.1f}."
         )
-        drawings = [
-            Drawing(
+        drawings = []
+        if prior is not None:
+            drawings.append(Drawing(
                 type="line",
                 coords=[Drawing._pt(prior[3], prior[2]), Drawing._pt(pivot_ts, pivot_price)],
                 color="#a855f7",
                 label="ZigZag leg",
-            ),
+            ))
+        drawings += [
             Drawing(
                 type="hline",
                 coords=[Drawing._pt(None, pivot_price)],
@@ -286,4 +302,44 @@ class GoldZigzagReversalDaily(GoldZigzagReversal):
         p.setdefault("entryMaxAtr", 1.0)
         p.setdefault("atrBuffer", 0.5)
         p.setdefault("minRr", 2.5)
+        super().__init__(p)
+
+
+class GoldZigzagScalp(GoldZigzagReversal):
+    """Aggressive high-frequency SCALP tuning of the ZigZag engine.
+
+    Built at the user's explicit request for a maximally active scalper, and
+    tuned for FREQUENCY, not maximum edge. It fires far more often than the
+    reversal variants by:
+      - shallow pivots (depth 2) → many more swing points qualify,
+      - a wide entry window (entryMaxAtr 2.0) → it takes late entries too,
+      - a FIXED tight take-profit (targetAtr 1.5×ATR) instead of a distant
+        structural target → quick in-and-out scalps, no prior pivot required,
+      - a low RR floor and RSI guards disabled,
+      - all regimes, short cooldown.
+
+    HONESTY NOTE (read this): more trades systematically means a thinner (often
+    NEGATIVE, after costs) per-trade edge — see the frequency-vs-edge sweep in
+    this repo. This variant exists so its edge can be MEASURED honestly by the
+    backtester, not because high frequency implies high profit. It is still one
+    position at a time with a hard ATR stop — NO martingale/grid, no averaging
+    into losers (that is the mechanism that fakes smooth returns and then blows
+    accounts to zero). Backtest + paper-trade before risking real money
+    (CLAUDE.md). There is no configuration of this engine that yields a
+    guaranteed daily return — that does not exist.
+    """
+
+    name = "gold_zigzag_scalp"
+    regimes = {TRENDING, RANGING, VOLATILE}
+
+    def __init__(self, params: dict[str, Any] | None = None) -> None:
+        p = dict(params or {})
+        p.setdefault("depth", 2)
+        p.setdefault("entryMaxAtr", 2.0)
+        p.setdefault("atrBuffer", 1.0)
+        p.setdefault("targetAtr", 1.5)   # fixed scalp take-profit
+        p.setdefault("minRr", 1.0)
+        p.setdefault("rsiOverbought", 30)  # effectively disabled (always passes)
+        p.setdefault("rsiOversold", 70)
+        p.setdefault("cooldownMs", 5 * 60 * 1000)  # 5 min — rapid re-entry
         super().__init__(p)
