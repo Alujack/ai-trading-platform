@@ -45,10 +45,16 @@ log = logging.getLogger("data.walkforward")
 # indicator values (stop/target multiples, RSI thresholds) — nothing that would
 # require recomputing the stored indicators.
 PARAM_GRIDS: dict[str, dict[str, list]] = {
-    # Empty — add a grid per registered strategy, e.g.:
-    # "my_strategy": {"atrStopMult": [1.0, 1.5, 2.0], "atrTargetMult": [2.0, 3.0, 4.0]},
+    # ICT confluence aggregator: the conviction threshold and stop buffer are the
+    # live knobs. (The EURUSD in-sample backtest showed a positive edge at
+    # minScore≈0.5 that flips negative at 0.65 — exactly the threshold-sensitivity
+    # walk-forward exists to adjudicate.)
+    "ict_confluence": {
+        "minScore": [0.40, 0.50, 0.65],
+        "atrBuffer": [0.3, 0.5],
+    },
 }
-DEFAULT_STRATEGIES: list[str] = []
+DEFAULT_STRATEGIES: list[str] = ["ict_confluence"]
 DEFAULT_TIMEFRAMES = ["60min"]
 
 

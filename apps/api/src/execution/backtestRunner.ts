@@ -36,7 +36,7 @@ const TAIL_MAX = 2_000;
 const DEFAULTS = {
   timeframes: ["15min", "60min", "1min"],
   symbols: ["XAUUSD", "EURUSD", "BTCUSD"],
-  strategies: ["trend_ema", "meanrev_rsi", "scalp_ema"],
+  strategies: ["ict_confluence", "ict_sweep_mss", "ict_order_block", "ict_fvg"],
   balance: 10_000,
   risk: 1,
 };
