@@ -47,24 +47,15 @@ from backtest.store import save_run
 from db import close_pool, init_pool
 from fetcher import SYMBOL_MAP
 from indicator_calculator import normalize_timeframe
-from strategies import build_strategy
+from strategies import STRATEGY_FACTORIES, build_strategy
 
 log = logging.getLogger("data.backtester")
 
 DEFAULT_TIMEFRAMES = ["15min"]
-# Backtest + walk-forward selection (XAUUSD, regime-gated, retail costs).
-# Survivor: gold_news_fade on 15min — the only strategy with a meaningful sample,
-# a positive cost-surviving edge, AND an out-of-sample track record:
-#   in-sample  : 44 trades, PF 1.25, +0.183R, +7.8%
-#   OOS (WF)   : 35 trades, PF 1.31, +0.187R  <- no degradation vs IS = real edge
-# Dropped:
-#   - 60min timeframe: PF 0.98 / -0.014R OOS (break-even, fails walk-forward).
-#   - london_sweep / asian_breakout / vwap_scalp: lost money or <5 trades.
-#   - meanrev_rsi 60min: PF 1.70 but only 13 trades — revisit once it clears ~30.
-# NB: with all-regime + spikeMinAtr=1.0 this fires like a spike mean-reversion
-# strategy, not a literal news fade — see gold_news_fade.py. Paper-trade first:
-# low win rate (~37%), ~2R payoff, lumpy (12/48 profitable folds, 7-loss streak).
-DEFAULT_STRATEGIES = ["gold_news_fade"]
+# Default: every strategy currently registered. The registry is empty right now
+# (all prior strategies removed after failing out-of-sample — see git history),
+# so pass --strategies explicitly once new ones are registered.
+DEFAULT_STRATEGIES = sorted(STRATEGY_FACTORIES)
 
 
 def _parse_date(s: str | None) -> datetime | None:

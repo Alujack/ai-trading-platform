@@ -114,7 +114,7 @@ def main() -> None:
     parser.add_argument("--symbols", default="XAUUSD", help="CSV, e.g. XAUUSD,EURUSD")
     parser.add_argument("--timeframes", default="1min,5min", help="CSV, e.g. 1min,5min")
     parser.add_argument("--target", type=int, default=6000, help="Bars to backfill per symbol×timeframe")
-    parser.add_argument("--strategies", default="scalp_vwap", help="CSV of strategies to backtest")
+    parser.add_argument("--strategies", required=True, help="CSV of registered strategies to backtest")
     parser.add_argument("--risk", type=float, default=1.0, help="Risk %% per trade for the backtest")
     parser.add_argument("--out", default=None, help="Write per-trade CSV + summary JSON here")
     parser.add_argument("--skip-backfill", action="store_true", help="Only recompute indicators + backtest")

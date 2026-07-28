@@ -121,7 +121,7 @@ def _verdict(target_exp: float, base_mean: float, base_std: float, p_value: floa
 def _evaluate_combo(
     symbol: str, tf: str, bars, cfg: BacktestConfig, target: str,
     target_params: dict | None, seeds: int, baseline_params: dict | None = None,
-    baseline: str = "ict_random_baseline",
+    baseline: str = "",
 ) -> ComboResult:
     tgt = _stats(target, target_params, bars, symbol, tf, cfg)
 
@@ -231,8 +231,8 @@ async def _run(args: argparse.Namespace) -> int:
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--target", default="ict_confluence", help="strategy to test against random (default: ict_confluence)")
-    p.add_argument("--baseline", default="ict_random_baseline", help="frame-matched random-control strategy (default: ict_random_baseline; use scalp_sniper_random for scalp_sniper)")
+    p.add_argument("--target", required=True, help="registered strategy to test against random")
+    p.add_argument("--baseline", required=True, help="frame-matched random-control strategy (a geometry-matched coin-flip variant of the target, registered alongside it)")
     p.add_argument("--target-params", dest="target_params", help='JSON param overrides for the target, e.g. \'{"minScore":0.5}\'')
     p.add_argument("--baseline-params", dest="baseline_params", help='JSON FRAME params to mirror onto the random baseline (keep frame matched), e.g. \'{"minRr":3.0}\'')
     p.add_argument("--symbols", nargs="*", help="default: all stored symbols")
