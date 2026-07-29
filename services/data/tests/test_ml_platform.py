@@ -99,6 +99,19 @@ def test_lookback_is_bound_to_features_not_retyped() -> None:
     assert build_strategy("ml_platform").lookback == LOOKBACK
 
 
+def test_lookback_fallback_matches_the_real_value() -> None:
+    """`ml_platform` carries a class-level `lookback` fallback because it cannot
+    import `training.features` at module scope (circular — see its comments).
+
+    The instance value is the one that matters, but a stale fallback would still
+    mislead anyone reading the class, and would silently take effect if the lazy
+    import ever failed.
+    """
+    from strategies.ml_platform import _FALLBACK_LOOKBACK
+
+    assert _FALLBACK_LOOKBACK == LOOKBACK
+
+
 def test_resolves_model_per_symbol_and_timeframe() -> None:
     """One registry entry serves every trained model — `train.py` writes
     `{symbol}_{timeframe}.txt`, so resolution must vary on both."""

@@ -43,35 +43,58 @@ from typing import Any
 
 import numpy as np
 
-from training.features import LOOKBACK, build_feature_row
-
 from .base import RANGING, TRENDING, VOLATILE, BarWindow, SignalCandidate
 from .ml_xau import _coin
 
 log = logging.getLogger("data.strategies.ml_platform")
 
-# Mirrors `training.labels`, which cannot be imported at module scope: it pulls
-# in `backtest.engine` for its cost model, and `backtest.engine` imports this
-# package — so a top-level import here closes the cycle and breaks every entry
-# point that touches the registry.
+# --------------------------------------------------------------------------- #
+# Everything under `training/` is imported LAZILY, never at module scope.
 #
-# Duplicating three ints is the smaller evil, but duplication is exactly how
-# training and inference drift apart, so
-# `tests/test_ml_platform.py::test_label_encoding_matches_training` asserts
-# these against the real definitions. Change one, the test fails.
+# This module is reached through `strategies/__init__` -> `registry`, so a
+# top-level `import training.X` here closes two separate cycles:
+#
+#   regime.py -> strategies.base -> (registry) -> ml_platform
+#             -> training.features -> regime          [partially initialized]
+#
+#   backtest.engine -> strategies -> (registry) -> ml_platform
+#                   -> training.labels -> backtest.engine   [same]
+#
+# Both surface as an ImportError from an unrelated entry point (importing
+# `regime` alone was enough), so the constants below are duplicated rather than
+# imported. Duplication is how training and inference drift apart, which is the
+# exact failure this whole module exists to avoid — so each copy is pinned
+# against its real definition in `tests/test_ml_platform.py`. Change one and
+# the test fails.
+# --------------------------------------------------------------------------- #
 SHORT, HOLD, LONG = 0, 1, 2
+_FALLBACK_LOOKBACK = 120
 _FALLBACK_ATR_STOP_MULT = 1.5
 _FALLBACK_RR = 2.0
 
 
+def _build_feature_row(bars: list[Any], timeframe: str) -> Any:
+    from training.features import build_feature_row
+
+    return build_feature_row(bars, timeframe=timeframe)
+
+
+def _feature_lookback() -> int:
+    try:
+        from training.features import LOOKBACK
+
+        return int(LOOKBACK)
+    except ImportError:  # pragma: no cover — only if a cycle is hit anyway
+        return _FALLBACK_LOOKBACK
+
+
 def _label_geometry() -> tuple[float, float]:
-    """`LabelConfig`'s stop/RR, imported lazily to dodge the cycle above."""
     try:
         from training.labels import LabelConfig
 
         cfg = LabelConfig()
         return float(cfg.atr_stop_mult), float(cfg.rr)
-    except ImportError:  # pragma: no cover — only if the cycle is hit anyway
+    except ImportError:  # pragma: no cover
         return _FALLBACK_ATR_STOP_MULT, _FALLBACK_RR
 
 _DEFAULT_MODEL_DIR = Path(__file__).resolve().parent.parent / "training" / "models"
@@ -105,10 +128,15 @@ class MlPlatform:
     # Not regime-gated: `regime_trending/ranging/volatile` are model inputs, so
     # the classifier decides for itself what the regime implies.
     regimes = {TRENDING, RANGING, VOLATILE}
-    lookback = LOOKBACK
+    # Class-level fallback only. `__init__` overrides it with the real
+    # `features.LOOKBACK`; both the runner and the backtest engine read
+    # `getattr(strategy, "lookback", 1)` off the INSTANCE, so the instance value
+    # is what actually sizes the window.
+    lookback = _FALLBACK_LOOKBACK
 
     def __init__(self, params: dict[str, Any] | None = None) -> None:
         p = params or {}
+        self.lookback = _feature_lookback()
         stop_mult, rr = _label_geometry()
         self.min_confidence = float(p.get("minConfidence", 0.50))
         # Defaults deliberately mirror the labelling geometry — see module docstring.
@@ -134,7 +162,7 @@ class MlPlatform:
         # BarWindow is most-recent-first; the feature builder wants chronological
         # and reads the LAST bar as the decision bar.
         chron = list(reversed(bars))[-self.lookback :]
-        row = build_feature_row(chron, timeframe=window.timeframe)
+        row = _build_feature_row(chron, window.timeframe)
         if row is None:
             return []
 

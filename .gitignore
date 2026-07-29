@@ -69,6 +69,12 @@ Thumbs.db
 postgres-data/
 redis-data/
 
+# Backtest / validation scratch output (backtester.py --out, baseline_mc.py --out).
+# Trained models and their metrics ARE tracked; per-run trade dumps are not —
+# a single 1min run writes a ~2 MB trades.csv.
+services/data/training/models/verdict_*/
+services/data/**/backtest_out/
+
 # Misc
 .turbo/
 .cache/
