@@ -23,6 +23,7 @@ import logging
 import os
 import threading
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 import MetaTrader5 as mt5  # Windows-only package
 from dotenv import load_dotenv
@@ -372,6 +373,57 @@ def _realized_profit(position_id: int) -> float:
         time.sleep(0.3)
         deals = mt5.history_deals_get(position=position_id)
     return float(sum(d.profit for d in deals)) if deals else 0.0
+
+
+@app.get("/candles_range/{symbol}")
+def candles_range(
+    symbol: str,
+    timeframe: str = "15min",
+    start: int = 0,
+    end: int = 0,
+    _: None = Depends(require_token),
+):
+    """Return OHLCV bars for `symbol` between the `start` and `end` epoch seconds.
+
+    `/candles` is capped at 5000 bars from the present, which is only ~3.4 days
+    of M1 — not enough to build a training set. This pages by date instead, so
+    deep history comes from the SAME broker feed we execute on. Training on a
+    different provider than we trade is how feature distributions silently drift
+    between backtest and live.
+
+    Returns [] (not 404) for a range the broker has no data for, so a caller
+    paging backward can detect the end of history without special-casing errors.
+    """
+    tf = _TF_MAP.get(timeframe)
+    if tf is None:
+        raise HTTPException(400, f"unknown timeframe '{timeframe}'. Use: {list(_TF_MAP)}")
+    if start <= 0 or end <= 0 or end <= start:
+        raise HTTPException(400, "start and end must be positive epoch seconds with end > start")
+
+    with _lock:
+        _ensure_connected()
+        _select_symbol(symbol)
+        # MT5 interprets these as broker-server time; Exness runs UTC+0, which is
+        # the same basis /candles already returns timestamps in.
+        rates = mt5.copy_rates_range(
+            symbol, tf, datetime.fromtimestamp(start, tz=timezone.utc),
+            datetime.fromtimestamp(end, tz=timezone.utc),
+        )
+
+    if rates is None:
+        return []
+
+    return [
+        {
+            "timestamp": int(r["time"]),
+            "open":   float(r["open"]),
+            "high":   float(r["high"]),
+            "low":    float(r["low"]),
+            "close":  float(r["close"]),
+            "volume": int(r["tick_volume"]),
+        }
+        for r in rates
+    ]
 
 
 @app.get("/candles/{symbol}")

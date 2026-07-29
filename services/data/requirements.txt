@@ -10,3 +10,8 @@ pandas-ta-classic>=0.4
 # ONNX inference for the ported ml_xau LightGBM classifier (strategies/ml_xau.py).
 # Imported lazily, so the worker still starts if this is missing.
 onnxruntime>=1.17
+# Training only (services/data/training/) — imported lazily so the live worker
+# never needs them. lightgbm also needs the libgomp1 system package; see Dockerfile.
+lightgbm>=4.3
+onnxmltools>=1.12
+skl2onnx>=1.16

@@ -11,6 +11,13 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
+# libgomp1 is LightGBM's OpenMP runtime — it is NOT in python:*-slim, and
+# without it `import lightgbm` dies with "libgomp.so.1: cannot open shared
+# object file". Needed by services/data/training/.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt ./
 RUN pip install -r requirements.txt \
     && pip install watchfiles
