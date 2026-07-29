@@ -1,0 +1,1 @@
+strategy,symbol,timeframe,direction,signal_time,entry_time,exit_time,entry_price,stop,target,exit_price,size,risk_amount,gross_pnl,commission,net_pnl,r_multiple,exit_reason,hold_bars,equity_after

@@ -4,6 +4,13 @@ Reads Candle+Indicator from Postgres, builds one feature row per bar with the
 SAME `features.build_feature_row` the live strategy calls, labels each bar with
 the cost-aware triple-barrier simulation, and writes an .npz.
 
+The live strategy is `strategies/ml_platform.py`. It imports `build_feature_row`
+from this same module and pins its `lookback` to `features.LOOKBACK` and its
+stop/target to `labels.LabelConfig`, so the trade the model was labelled on is
+the trade that actually gets placed. Change the geometry in one place and you
+must change it in both — `train.py`'s docstring explains what goes wrong
+otherwise.
+
 Row validity is bounded on both sides and this is load-bearing:
   * the first `LOOKBACK-1` bars have no feature window;
   * the last `horizon` bars have no room for a label to resolve, so including

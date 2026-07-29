@@ -1,9 +1,28 @@
 """ml_xau — LightGBM/ONNX classifier ported from the external `xaubot` project.
 
+FROZEN — LEGACY CONTRACT. DO NOT REFACTOR.
+==========================================
+This module deliberately carries its own feature implementation, which is the
+one exception to the "exactly one code path" rule that `training/features.py`
+opens with. The reason is that the 26-feature contract below is not a design
+choice we own — it is a property of the compiled ONNX binary. LightGBM binds
+inputs by position, so *any* change to `FEATURE_ORDER` or to the indicator
+formulas silently feeds the model different numbers than it was fit on, and
+nothing fails loudly when that happens.
+
+So: this file is a faithful reproduction of a fixed artifact, not a strategy
+under active development. New model work belongs in `training/features.py`,
+which is shared by `training/build_dataset.py` and the live path and has no
+frozen binary to satisfy. `tests/test_ml_features.py::test_ml_xau_contract_frozen`
+pins the contract so a well-meaning refactor breaks the build instead of the
+model.
+
 Provenance: `andywarui/xaubot`, model `MT5_XAUBOT/Files/lightgbm_real_26features.onnx`
 (the only shipped ONNX that is real bytes rather than a Git-LFS pointer stub).
 Trained on 2022-2024 Kaggle XAUUSD **M1** data, so this strategy is only
-meaningful on the 1min timeframe.
+meaningful on the 1min timeframe. Note our own execution broker only has 1min
+history back to ~2026-04, so this is also the timeframe on which we have the
+least data to validate it — see `research/xaubot/IMPORT_NOTES.md`.
 
 The upstream project advertises 66.2% win rate / 3,780% return. Those numbers do
 not survive review and are NOT the reason this exists — see the port notes in
@@ -29,6 +48,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
 import os
 import random
 from decimal import Decimal
@@ -79,12 +99,29 @@ def _ema(values: np.ndarray, span: int) -> np.ndarray:
     strategy only ever calls this on a `lookback`-sized window (100 bars), where
     the largest factor is ~1e2 in float64 — a scalar loop here cost ~300 Python
     iterations per evaluated bar, which dominated walk-forward runtime.
+
+    That window bound is load-bearing, not incidental. `decay[i]` underflows to
+    0.0 once (1-a)^i drops below ~1e-308, and the division on the next line then
+    yields inf -> NaN -> `nan_to_num` turns it into a perfectly innocent-looking
+    0.0. Measured first-bad length: span 10 at ~3,550 bars, span 20 at ~7,050.
+    Both live (`evaluate`) and backtest (`backtest/engine.py` trailing window)
+    pass exactly `lookback` bars, so nothing currently reaches this — but a batch
+    caller over a full series would get silently zeroed EMAs with no warning at
+    all. Raise instead, because the frozen contract means we cannot fix the math
+    without changing what the model sees.
     """
     n = len(values)
     if n == 0:
         return values.astype(np.float64)
     a = 2.0 / (span + 1.0)
     x = values.astype(np.float64)
+    max_safe = int(-308.0 / math.log10(1.0 - a))
+    if n > max_safe:
+        raise ValueError(
+            f"_ema(span={span}) called on {n} bars; the vectorised form silently "
+            f"returns zeros past ~{max_safe}. Score bar-by-bar over a "
+            f"{MlXau.lookback}-bar window (see build_features' docstring)."
+        )
     decay = (1.0 - a) ** np.arange(n)
     # ema[i] = decay[i]*x[0] + a * sum_{j=1..i} decay[i-j]*x[j]
     contrib = np.zeros(n)
@@ -107,6 +144,18 @@ def build_features(
 
     Mirrors prepare_real_data.py + train_real_26features_optimized.py. Returns
     shape (len(c), 26) float32.
+
+    Call this on a `MlXau.lookback`-sized window and read the LAST row, the way
+    `evaluate` does. Two reasons, both measured:
+
+    * `_ema` raises past ~3,550 bars (see its docstring).
+    * The EMAs are path-dependent, so the row you get for a given bar depends on
+      how much history preceded it. At 100 bars, `ema_50` sits ~0.11 price units
+      away from its full-series value. Upstream trained on full-series pandas
+      `ewm`, so there is a permanent, systematic train/live skew on the three raw
+      price-scale EMA features here. It cannot be fixed from this side — closing
+      it would mean changing what the frozen ONNX binary is fed. It is one more
+      reason this model is a validation subject rather than a trading strategy.
     """
     n = len(c)
     f: dict[str, np.ndarray] = {}

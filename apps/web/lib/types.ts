@@ -57,6 +57,31 @@ export interface Performance {
   averageRR: number;
 }
 
+/** GET /api/performance/drift — see apps/api/src/services/performance.ts. */
+export interface ConfidenceBucket {
+  bucket: string;
+  trades: number;
+  winRate: number;
+}
+
+export interface StrategyDrift {
+  strategyName: string;
+  trades: number;
+  meanConfidence: number;
+  winRate: number;
+  buckets: ConfidenceBucket[];
+  /** Top-decile win rate minus bottom-decile. Null below two populated deciles. */
+  discrimination: number | null;
+  recentWinRate: number | null;
+  /** recentWinRate - winRate. Null below the window size. */
+  drift: number | null;
+}
+
+export interface DriftResponse {
+  window: number;
+  strategies: StrategyDrift[];
+}
+
 export const AI_PROVIDERS = ["mock", "anthropic", "gemini"] as const;
 export type AiProvider = (typeof AI_PROVIDERS)[number];
 

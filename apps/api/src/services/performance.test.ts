@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { computePerformance, type TradeStats } from "./performance";
+import {
+  computePerformance,
+  computeStrategyDrift,
+  type DriftTradeStats,
+  type TradeStats,
+} from "./performance";
 
 const winLong: TradeStats = {
   entryPrice: 100,
@@ -110,5 +115,111 @@ describe("computePerformance", () => {
     const r = computePerformance([noPnl]);
     expect(r.totalPnL).toBe(0);
     expect(r.winRate).toBe(0); // null P&L doesn't count as a win
+  });
+});
+
+// --------------------------------------------------------------------------- //
+
+const DAY = 86_400_000;
+
+/** n trades for `strategyName` at a fixed confidence, `wins` of them profitable. */
+function batch(
+  strategyName: string | null,
+  confidenceScore: number,
+  n: number,
+  wins: number,
+  startDay = 0,
+): DriftTradeStats[] {
+  return Array.from({ length: n }, (_, i) => ({
+    strategyName,
+    confidenceScore,
+    profitLoss: i < wins ? 10 : -10,
+    closedAt: new Date(Date.UTC(2026, 0, 1) + (startDay + i) * DAY),
+  }));
+}
+
+describe("computeStrategyDrift", () => {
+  it("returns an empty list when there is nothing to score", () => {
+    expect(computeStrategyDrift([])).toEqual([]);
+  });
+
+  it("groups by strategy and puts the biggest sample first", () => {
+    const r = computeStrategyDrift([
+      ...batch("ict_confluence", 70, 10, 6),
+      ...batch("ml_xau", 60, 3, 1),
+    ]);
+    expect(r.map((s) => s.strategyName)).toEqual(["ict_confluence", "ml_xau"]);
+    expect(r[0].trades).toBe(10);
+    expect(r[0].winRate).toBe(60);
+    expect(r[0].meanConfidence).toBe(70);
+  });
+
+  it("excludes unresolved trades — an open trade cannot score a prediction", () => {
+    const open: DriftTradeStats = {
+      strategyName: "ict_confluence",
+      confidenceScore: 80,
+      profitLoss: null,
+      closedAt: null,
+    };
+    const r = computeStrategyDrift([...batch("ict_confluence", 70, 4, 2), open]);
+    expect(r[0].trades).toBe(4);
+  });
+
+  it("buckets null strategyName rather than dropping it", () => {
+    const r = computeStrategyDrift(batch(null, 50, 2, 1));
+    expect(r[0].strategyName).toBe("(unattributed)");
+  });
+
+  it("scores discrimination positive when confidence ranks trades correctly", () => {
+    // 30s bucket wins 20%, 80s bucket wins 90% → the score is informative.
+    const r = computeStrategyDrift([
+      ...batch("ml_xau", 35, 10, 2),
+      ...batch("ml_xau", 85, 10, 9),
+    ]);
+    expect(r[0].buckets.map((b) => b.bucket)).toEqual(["30-39", "80-89"]);
+    expect(r[0].discrimination).toBe(70); // 90 - 20
+  });
+
+  it("scores discrimination negative when confidence is anti-predictive", () => {
+    const r = computeStrategyDrift([
+      ...batch("ml_xau", 35, 10, 9),
+      ...batch("ml_xau", 85, 10, 2),
+    ]);
+    expect(r[0].discrimination).toBe(-70);
+  });
+
+  it("leaves discrimination null with only one populated decile", () => {
+    expect(computeStrategyDrift(batch("ml_xau", 55, 8, 4))[0].discrimination).toBeNull();
+  });
+
+  it("reports drift when recent trades diverge from the lifetime rate", () => {
+    // 20 old trades at 80% win, then 10 recent at 0% → recent window of 10
+    // sees 0%, lifetime is 53.33%.
+    const r = computeStrategyDrift(
+      [...batch("ml_xau", 60, 20, 16, 0), ...batch("ml_xau", 60, 10, 0, 20)],
+      10,
+    );
+    expect(r[0].trades).toBe(30);
+    expect(r[0].winRate).toBe(53.33);
+    expect(r[0].recentWinRate).toBe(0);
+    expect(r[0].drift).toBe(-53.33); // the decay signal
+  });
+
+  it("leaves recent metrics null below the window size", () => {
+    const r = computeStrategyDrift(batch("ml_xau", 60, 5, 3), 30);
+    expect(r[0].recentWinRate).toBeNull();
+    expect(r[0].drift).toBeNull();
+  });
+
+  it("counts breakeven in the denominator but not as a win", () => {
+    const be: DriftTradeStats = {
+      strategyName: "ml_xau",
+      confidenceScore: 60,
+      profitLoss: 0,
+      closedAt: new Date(Date.UTC(2026, 0, 1)),
+    };
+    const r = computeStrategyDrift([...batch("ml_xau", 60, 1, 1), be]);
+    expect(r[0].trades).toBe(2);
+    expect(r[0].winRate).toBe(50);
   });
 });

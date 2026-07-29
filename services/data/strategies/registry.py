@@ -19,6 +19,7 @@ from typing import Any, Callable
 
 from .base import Strategy
 from .ict import IctConfluence, IctFvg, IctOrderBlock, IctRandomBaseline, IctSweepMss
+from .ml_platform import MlPlatform, MlPlatformRandomBaseline
 from .ml_xau import MlXau, MlXauRandomBaseline
 
 STRATEGY_FACTORIES: dict[str, Callable[[dict[str, Any] | None], Strategy]] = {
@@ -36,9 +37,19 @@ STRATEGY_FACTORIES: dict[str, Callable[[dict[str, Any] | None], Strategy]] = {
     # Ported LightGBM/ONNX classifier from the external `xaubot` project. 1min
     # only (trained on M1). UNVALIDATED on this platform — see ml_xau.py. Must
     # clear backtest + walkforward + random baseline before it is ever enabled.
+    #
+    # FROZEN: ml_xau reproduces a fixed ONNX binary's feature contract, so it
+    # keeps its own feature code on purpose. It is not the template for new
+    # model strategies — build those on `training/features.py` instead.
     "ml_xau": MlXau,
     # Timing- and geometry-matched random control for ml_xau (see baseline_mc.py).
     "ml_xau_random": MlXauRandomBaseline,
+    # Serves the models THIS platform trains (training/models/{SYMBOL}_{TF}.txt),
+    # built on the shared `training/features.py` rather than a frozen binary's
+    # contract. One entry covers every symbol/timeframe model. Same gate as
+    # everything else: backtest + walkforward + beat ml_platform_random first.
+    "ml_platform": MlPlatform,
+    "ml_platform_random": MlPlatformRandomBaseline,
 }
 
 

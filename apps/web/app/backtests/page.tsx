@@ -6,6 +6,7 @@ import { ApiError, fetcher, postJson } from "@/lib/api";
 import { C, mono, tint } from "@/lib/theme";
 import type { BacktestMetric, BacktestRunDetail, BacktestRunsResponse } from "@/lib/types";
 import { EquityCurve } from "../components/dash/EquityCurve";
+import { ModelDriftPanel } from "../components/dash/ModelDriftPanel";
 import { Panel, Pill, StatusDot } from "../components/dash/ui";
 
 interface JobStatus {
@@ -220,6 +221,10 @@ export default function BacktestsPage() {
           )}
         </>
       )}
+
+      {/* Backtests answer "did it work on history". This answers "is it still
+          working now" — the live counterpart, on closed trades. */}
+      <ModelDriftPanel />
     </>
   );
 }

@@ -43,19 +43,29 @@ recorded SHA.
 
 ## The data and most models are not here
 
-44 imported files are **Git-LFS pointer stubs, not real content** — ~130-byte
-text files. Upstream's LFS objects were never fetched. This covers:
+44 imported files were **Git-LFS pointer stubs, not real content** — ~130-byte
+text files. Upstream's LFS objects were never fetched.
 
-- everything in `data/processed/` (all 35 `.parquet` / `.npy` / `.csv`)
+**The 35 under `data/processed/` have since been deleted** (2026-07-29). The
+training corpus is now sourced from the broker we actually execute on, via
+`services/data/backfill_mt5.py` into Postgres — see `data/README.md` for
+coverage and rebuild steps. Resolving those stubs would have pulled in Kaggle
+bars from a different venue, which is the drift source that tooling exists to
+remove.
+
+The remaining 9 stubs are kept, because nothing supersedes them and their
+absence would make the export scripts look broken for the wrong reason:
+
 - `python_training/models/` — `hybrid_lightgbm.onnx`, `lightgbm_xauusd.onnx`,
   `lightgbm_xauusd.pkl`, `transformer.onnx`, `multi_tf_scaler.pkl`,
   `multi_tf_transformer_price.pth`
 - `mt5_expert_advisor/Files/NeuralBot/` — `hybrid_lightgbm.onnx`, `transformer.onnx`
 - the `docs/` PDF
 
-Resolving them needs `git lfs pull` against upstream, which requires access to
-andywarui's LFS storage. **Until then the training and ensemble pipelines here
-cannot be run.**
+They need `git lfs pull` against andywarui's LFS storage. **Until then the
+ensemble/Transformer pipeline here cannot be run** — but note the platform is
+not waiting on it: `services/data/training/` trains its own models from the
+broker corpus.
 
 ### The one real model
 

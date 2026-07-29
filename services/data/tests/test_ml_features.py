@@ -12,6 +12,11 @@ shared builder safe to trust:
   of the contract (ICT structure is found by scanning the window, so a longer
   window can legitimately surface an older swing/order block — training and
   live must therefore pass exactly `LOOKBACK` bars).
+
+The second half of the file covers `strategies/ml_xau.py`, which is a different
+kind of thing: a frozen reproduction of a compiled ONNX binary's inputs rather
+than a builder we own. There the tests pin the contract in place instead of
+proving properties about it.
 """
 from __future__ import annotations
 
@@ -25,6 +30,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import numpy as np  # noqa: E402
 
+from strategies import ml_xau as MX  # noqa: E402
 from strategies.base import IndicatorBar  # noqa: E402
 from strategies.ict import primitives as P  # noqa: E402
 from training.features import (  # noqa: E402
@@ -178,6 +184,98 @@ def test_features_are_scale_free() -> None:
         if d > worst:
             worst_name, worst = name, d
     assert worst < 1e-3, f"feature '{worst_name}' moved {worst:.3e} under a 2x price rescale"
+
+
+# --------------------------------------------------------------------------- #
+# ml_xau — frozen legacy contract
+#
+# ml_xau reproduces a compiled ONNX binary's inputs. LightGBM binds by position,
+# so a reorder or a formula tweak feeds the model different numbers with no
+# error anywhere. These tests exist so that breaks the build instead.
+# --------------------------------------------------------------------------- #
+
+def test_ml_xau_contract_frozen() -> None:
+    """The 26 inputs, in order, exactly as the ONNX binary expects them.
+
+    Spelled out literally rather than derived — a test that recomputes the
+    contract from the module under test cannot detect the module changing.
+    """
+    assert MX.FEATURE_ORDER == (
+        "body", "body_abs", "candle_range", "close_position",
+        "return_1", "return_5", "return_15", "return_60",
+        "tr", "atr_14", "rsi_14",
+        "ema_10", "ema_20", "ema_50",
+        "hour_sin", "hour_cos",
+        "mtf_0", "mtf_1", "mtf_2", "mtf_3", "mtf_4",
+        "mtf_5", "mtf_6", "mtf_7", "mtf_8", "mtf_9",
+    )
+    assert len(MX.FEATURE_ORDER) == 26
+    assert (MX.SHORT, MX.HOLD, MX.LONG) == (0, 1, 2)
+
+
+def _ohlc(n: int, seed: int = 3):
+    rng = np.random.default_rng(seed)
+    price = 2000.0
+    o = np.empty(n); h = np.empty(n); low = np.empty(n); c = np.empty(n)
+    for i in range(n):
+        price = max(50.0, price + rng.normal(0, 3.0))
+        op, cl = price + rng.normal(0, 0.5), price
+        span = abs(rng.normal(0, 2.0)) + 0.5
+        o[i], c[i] = op, cl
+        h[i], low[i] = max(op, cl) + span, min(op, cl) - span
+    ts = np.arange("2026-01-01T00:00", n, dtype="datetime64[m]")
+    return ts, o, h, low, c
+
+
+def test_ml_xau_mtf_inputs_are_dead() -> None:
+    """10 of the 26 inputs are hard-coded 0.0 — placeholders for a Transformer
+    upstream never shipped. Pinned so nobody 'fixes' them into real values and
+    silently changes what the frozen binary is fed."""
+    feats = MX.build_features(*_ohlc(MX.MlXau.lookback))
+    for i, name in enumerate(MX.FEATURE_ORDER):
+        if name.startswith("mtf_"):
+            assert (feats[:, i] == 0.0).all(), f"{name} is no longer a zero placeholder"
+
+
+def test_ml_xau_ema_guard_raises_instead_of_zeroing() -> None:
+    """Past ~3,550 bars the vectorised `_ema` used to return a silent 0.0.
+
+    Loud failure is the whole point: a batch caller getting zeroed EMAs back
+    would see plausible-looking features and a model quietly scoring garbage.
+    """
+    safe = MX._ema(np.full(100, 2000.0), 10)
+    assert np.isfinite(safe).all() and safe[-1] > 1000.0
+
+    try:
+        MX._ema(np.full(5000, 2000.0), 10)
+    except ValueError as exc:
+        assert "silently returns zeros" in str(exc)
+    else:
+        raise AssertionError("_ema must raise past its safe length, not return zeros")
+
+
+def test_ml_xau_window_length_changes_the_ema_features() -> None:
+    """Documents the train/live skew we cannot close from this side.
+
+    Upstream trained on full-series pandas `ewm`; we infer over a 100-bar
+    window. The EMAs are path-dependent, so those two disagree. This test pins
+    the fact that they disagree — if it ever starts passing with equality, the
+    feature semantics changed and the frozen binary is being fed something new.
+    """
+    n = 3000  # under the _ema guard, well over the 100-bar live window
+    ts, o, h, low, c = _ohlc(n)
+    full = MX.build_features(ts, o, h, low, c)[-1]
+    win = MX.build_features(ts[-100:], o[-100:], h[-100:], low[-100:], c[-100:])[-1]
+
+    idx = {name: i for i, name in enumerate(MX.FEATURE_ORDER)}
+    # Path-independent features must agree exactly...
+    for name in ("body", "candle_range", "close_position", "tr", "atr_14",
+                 "rsi_14", "return_1", "return_60", "hour_sin"):
+        assert abs(float(full[idx[name]]) - float(win[idx[name]])) < 1e-6, name
+    # ...while ema_50 carries real warmup error at a 100-bar window.
+    assert abs(float(full[idx["ema_50"]]) - float(win[idx["ema_50"]])) > 1e-3, (
+        "ema_50 no longer shows window sensitivity — feature semantics changed"
+    )
 
 
 def _run_all() -> None:
