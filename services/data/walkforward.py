@@ -53,6 +53,14 @@ PARAM_GRIDS: dict[str, dict[str, list]] = {
         "minScore": [0.40, 0.50, 0.65],
         "atrBuffer": [0.3, 0.5],
     },
+    # Ported xaubot classifier. Its advertised 0.55 threshold yields zero trades
+    # on 2026 gold (SHORT probability peaks at 0.476, LONG is never predicted),
+    # so the grid reaches below it to let walk-forward adjudicate whether the
+    # in-sample edge at a forced threshold is real or a single-window artifact.
+    "ml_xau": {
+        "minConfidence": [0.30, 0.35, 0.40],
+        "atrStopMult": [1.0, 1.5],
+    },
 }
 DEFAULT_STRATEGIES: list[str] = ["ict_confluence"]
 DEFAULT_TIMEFRAMES = ["60min"]

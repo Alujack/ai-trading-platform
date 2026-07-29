@@ -19,6 +19,7 @@ from typing import Any, Callable
 
 from .base import Strategy
 from .ict import IctConfluence, IctFvg, IctOrderBlock, IctRandomBaseline, IctSweepMss
+from .ml_xau import MlXau
 
 STRATEGY_FACTORIES: dict[str, Callable[[dict[str, Any] | None], Strategy]] = {
     # ICT detector family (docs/research/ict-signal-engine-build-plan.md §3) —
@@ -32,6 +33,10 @@ STRATEGY_FACTORIES: dict[str, Callable[[dict[str, Any] | None], Strategy]] = {
     # killzone + structural stop + min-RR target frame, but random direction —
     # the significance baseline ict_confluence's OOS edge must beat.
     "ict_random_baseline": IctRandomBaseline,
+    # Ported LightGBM/ONNX classifier from the external `xaubot` project. 1min
+    # only (trained on M1). UNVALIDATED on this platform — see ml_xau.py. Must
+    # clear backtest + walkforward + random baseline before it is ever enabled.
+    "ml_xau": MlXau,
 }
 
 
