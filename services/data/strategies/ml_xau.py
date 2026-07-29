@@ -27,8 +27,10 @@ ATR use simple rolling means, NOT Wilder's smoothing).
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
+import random
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -70,13 +72,24 @@ def _session(model_path: str) -> Any:
 
 
 def _ema(values: np.ndarray, span: int) -> np.ndarray:
-    """pandas .ewm(span, adjust=False, min_periods=1) equivalent."""
-    alpha = 2.0 / (span + 1.0)
-    out = np.empty_like(values)
-    out[0] = values[0]
-    for i in range(1, len(values)):
-        out[i] = alpha * values[i] + (1.0 - alpha) * out[i - 1]
-    return out
+    """pandas .ewm(span, adjust=False, min_periods=1) equivalent, vectorised.
+
+    The recurrence ema[i] = a*x[i] + (1-a)*ema[i-1] unrolls to a weighted sum,
+    which cumsum evaluates in one pass. The intermediate 1/(1-a)^i grows, but the
+    strategy only ever calls this on a `lookback`-sized window (100 bars), where
+    the largest factor is ~1e2 in float64 — a scalar loop here cost ~300 Python
+    iterations per evaluated bar, which dominated walk-forward runtime.
+    """
+    n = len(values)
+    if n == 0:
+        return values.astype(np.float64)
+    a = 2.0 / (span + 1.0)
+    x = values.astype(np.float64)
+    decay = (1.0 - a) ** np.arange(n)
+    # ema[i] = decay[i]*x[0] + a * sum_{j=1..i} decay[i-j]*x[j]
+    contrib = np.zeros(n)
+    contrib[1:] = a * x[1:] / decay[1:]
+    return decay * (x[0] + np.cumsum(contrib))
 
 
 def _rolling_mean(values: np.ndarray, window: int) -> np.ndarray:
@@ -225,3 +238,57 @@ class MlXau:
                 client_id=f"ml_xau|{window.symbol}|{window.timeframe}|{direction}|{latest.timestamp.isoformat()}",
             )
         ]
+
+
+def _coin(seed: int, ts_iso: str) -> random.Random:
+    """Per-(seed, bar) RNG, reproducible across processes (PYTHONHASHSEED-proof)."""
+    digest = hashlib.sha1(f"{seed}|{ts_iso}".encode()).digest()
+    return random.Random(int.from_bytes(digest[:8], "big"))
+
+
+class MlXauRandomBaseline(MlXau):
+    """Geometry- AND timing-matched random control for ml_xau.
+
+    ml_xau turns out to be effectively short-only on 2026 gold (LONG is never
+    predicted), so its entire contribution reduces to two things: *when* it
+    fires, and the fixed SHORT direction. This control keeps the timing — it
+    fires on exactly the bars the model clears its threshold on — and keeps the
+    identical ATR stop / RR target geometry, but replaces the direction with a
+    coin flip.
+
+    That isolates the one question a positive backtest cannot answer on its own:
+    is "always SHORT" skill, or was it a directional bet that happened to match
+    the sample window? ml_xau only has a real edge if it lands in the right tail
+    of a Monte-Carlo over this baseline's seeds. Mirrors the ict_confluence /
+    ict_random_baseline pattern (build plan §8).
+    """
+
+    name = "ml_xau_random"
+
+    def __init__(self, params: dict[str, Any] | None = None) -> None:
+        super().__init__(params)
+        self.seed = int((params or {}).get("seed", 0))
+
+    def evaluate(self, window: BarWindow) -> list[SignalCandidate]:
+        out = super().evaluate(window)
+        if not out:
+            return out
+        sig = out[0]
+        rng = _coin(self.seed, sig.client_id or "")
+        direction = "LONG" if rng.random() < 0.5 else "SHORT"
+        if direction == sig.direction:
+            return [sig]
+        # Flip the frame around the same entry, preserving |risk| and RR exactly.
+        risk = abs(sig.entry - sig.stop)
+        rr = abs(sig.target - sig.entry) / risk if risk > 0 else self.rr
+        if direction == "LONG":
+            stop, target = sig.entry - risk, sig.entry + rr * risk
+        else:
+            stop, target = sig.entry + risk, sig.entry - rr * risk
+        sig.direction = direction
+        sig.stop = stop
+        sig.target = target
+        sig.strategy_name = self.name
+        sig.reasoning = f"ml_xau_random control (seed={self.seed}) {direction}; frame matched to ml_xau"
+        sig.client_id = f"ml_xau_random|{window.symbol}|{window.timeframe}|{direction}|{sig.entry}"
+        return [sig]

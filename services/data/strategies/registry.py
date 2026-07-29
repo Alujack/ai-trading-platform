@@ -19,7 +19,7 @@ from typing import Any, Callable
 
 from .base import Strategy
 from .ict import IctConfluence, IctFvg, IctOrderBlock, IctRandomBaseline, IctSweepMss
-from .ml_xau import MlXau
+from .ml_xau import MlXau, MlXauRandomBaseline
 
 STRATEGY_FACTORIES: dict[str, Callable[[dict[str, Any] | None], Strategy]] = {
     # ICT detector family (docs/research/ict-signal-engine-build-plan.md §3) —
@@ -37,6 +37,8 @@ STRATEGY_FACTORIES: dict[str, Callable[[dict[str, Any] | None], Strategy]] = {
     # only (trained on M1). UNVALIDATED on this platform — see ml_xau.py. Must
     # clear backtest + walkforward + random baseline before it is ever enabled.
     "ml_xau": MlXau,
+    # Timing- and geometry-matched random control for ml_xau (see baseline_mc.py).
+    "ml_xau_random": MlXauRandomBaseline,
 }
 
 
