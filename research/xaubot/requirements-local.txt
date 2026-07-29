@@ -1,0 +1,29 @@
+# Verified-working local runtime for the Python backtesting path.
+# Built and smoke-tested on Windows 11 / Python 3.11.2.
+#
+#   py -3.11 -m venv .venv311
+#   .venv311\Scripts\python.exe -m pip install -r requirements-local.txt
+#
+# Differences vs requirements.txt (which cannot run the backtest as-is):
+#   + onnxruntime  -- required by python_backtesting/backtest_engine.py, was missing
+#   + pyarrow      -- required for the .parquet I/O used throughout, was missing
+#   - pandas_ta    -- not imported anywhere in the repo, and breaks on numpy>=2
+#   - torch        -- 2.5 GB, only needed for the transformer scripts (see below)
+#   - MetaTrader5  -- only needed for python_monitoring, and requires an MT5 terminal
+
+numpy==2.4.6
+pandas==3.0.5
+pyarrow==25.0.0
+onnxruntime==1.28.0
+lightgbm==4.7.0
+scikit-learn==1.9.0
+matplotlib==3.11.1
+seaborn==0.13.2
+ta==0.11.0
+tqdm==4.70.0
+PyYAML==6.0.3
+python-dotenv==1.2.2
+
+# Optional extras, install only if you need that subsystem:
+#   transformer training/export : torch onnx onnxmltools onnxconverter-common
+#   live monitoring dashboard   : streamlit plotly MetaTrader5

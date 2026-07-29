@@ -1,0 +1,13 @@
+# Vendored third-party snapshot — preserve bytes exactly as imported.
+#
+# The platform repo runs with core.autocrlf=true. Without this, git would
+# rewrite LF to CRLF in every text file here, which breaks the 44 Git-LFS
+# pointer stubs under data/processed/ and python_training/models/: the LFS
+# spec requires LF line endings, so a CRLF-mangled pointer can never be
+# resolved by `git lfs pull` against upstream.
+#
+# Note this deliberately does NOT re-enable the LFS filters from upstream's
+# own .gitattributes (*.npy/*.parquet/*.onnx/*.pkl/*.pth/*.pdf filter=lfs).
+# This repo has no LFS configured, and turning the filters on would make
+# checkout fail for anyone without git-lfs installed.
+* -text
