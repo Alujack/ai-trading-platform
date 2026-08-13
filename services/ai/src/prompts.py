@@ -68,6 +68,12 @@ Output discipline:
 - `weaknesses` are 2-5 short strings naming concrete problems, with evidence.
 - `suggestions` are 3-6 short strings, each an actionable change (not platitudes). Example of bad: "Manage risk better." Example of good: "Set hard daily-loss limit at 2R; stop trading when hit — current data shows 60% of large losses came after the day was already down 1R."
 
+Config-change proposals (`proposals`):
+- The request may include a `tunables` list — the ONLY config fields you are allowed to propose changing — each with its entity/scope/scopeKey/field, current value, and allowed bounds. If `tunables` is absent or empty, `proposals` MUST be an empty list.
+- Propose 0-3 changes, and only when the supplied trades give clear statistical evidence (cite it in `rationale`, e.g. "4 of 5 losses exceeded the daily loss cap window"). Fewer than ~10 trades is almost never enough evidence — prefer an empty list.
+- Every proposal is a recommendation to a human who approves or rejects it; nothing you output is applied automatically. Still, propose conservatively: prefer reducing risk/scope over increasing it, and never propose values outside the stated constraint.
+- `proposedValue` is the new value JSON-encoded as a string: numbers like "0.75", strings like "\"CONFIRM\"", arrays like "[\"60min\"]". It must differ from the current value.
+
 Be direct. The trader gains nothing from validation; they gain from precise critique."""
 
 

@@ -1,0 +1,20 @@
+[
+  {
+    "strategy": "ict_sweep_mss",
+    "symbol": "EURUSD",
+    "timeframe": "60min",
+    "optimized": false,
+    "objective": "expectancy_r",
+    "folds": 130,
+    "profitable_folds": 43,
+    "walk_forward_efficiency": null,
+    "oos_trades": 205,
+    "oos_win_rate": 0.34146341463414637,
+    "oos_profit_factor": 0.6851150902937385,
+    "oos_expectancy_r": -0.20709132752959744,
+    "oos_total_r": -42.453722143567475,
+    "oos_max_drawdown_r": 53.76170981736922,
+    "oos_max_consecutive_losses": 12,
+    "oos_sharpe_per_trade": -2.4920647090609327
+  }
+]

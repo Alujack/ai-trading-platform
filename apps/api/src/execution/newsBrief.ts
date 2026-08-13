@@ -10,6 +10,7 @@
 
 import { prisma } from "../lib/prisma";
 import { defaultChatId, isConfigured, sendMessage } from "../telegram/telegram";
+import { collectMarketContext } from "./dailyBriefing";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL ?? "http://localhost:8000";
@@ -53,6 +54,22 @@ async function aiSummary(events: BriefEvent[]): Promise<string | null> {
   }
 }
 
+/** Morning desk call from the market-context agent: bias + levels + risks per
+ *  traded series. Empty string when the AI service has nothing to say. */
+async function deskCallSection(): Promise<string[]> {
+  const contexts = await collectMarketContext();
+  if (contexts.length === 0) return [];
+  const lines = ["", "<b>DESK CALL</b>"];
+  for (const m of contexts) {
+    const dot = m.bias === "Bullish" ? "🟢" : m.bias === "Bearish" ? "🔴" : "⚪";
+    lines.push(`${dot} <b>${esc(m.symbol)} ${esc(m.timeframe)}</b> — ${esc(m.bias)}`);
+    lines.push(esc(m.summary.slice(0, 300)));
+    if (m.keyLevels.length) lines.push(`Levels: ${esc(m.keyLevels.slice(0, 3).join(" · "))}`);
+    if (m.risks.length) lines.push(`Risks: ${esc(m.risks.slice(0, 2).join(" · "))}`);
+  }
+  return lines;
+}
+
 /** Build the HTML message body for the next-24h news brief. */
 export async function buildNewsBrief(now: Date = new Date()): Promise<string> {
   const events = await prisma.newsEvent.findMany({
@@ -64,11 +81,14 @@ export async function buildNewsBrief(now: Date = new Date()): Promise<string> {
     take: 15,
   });
 
+  const desk = await deskCallSection();
+
   if (events.length === 0) {
     return [
       "📰 <b>NEWS BRIEF</b> — next 24h (UTC)",
       "",
       "No high- or medium-impact events scheduled. Clear to follow your plan — still read the chart before any entry.",
+      ...desk,
     ].join("\n");
   }
 
@@ -83,6 +103,7 @@ export async function buildNewsBrief(now: Date = new Date()): Promise<string> {
     lines.push(`${flag} ${time} <b>${esc(e.currency)}</b> — ${esc(e.title)}`);
   }
 
+  lines.push(...desk);
   lines.push("", "⚠️ Trades auto-block ±30m around high-impact events.");
   return lines.join("\n");
 }

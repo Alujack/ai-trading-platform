@@ -72,6 +72,7 @@ services:
     restart: unless-stopped
     command: >-
       sh -c "npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma &&
+             npx prisma generate --schema=apps/api/prisma/schema.prisma &&
              npm run dev --workspace=@ai-trading/api"
     env_file: .env
     environment:
@@ -188,6 +189,8 @@ services:
       # so reach it by service name instead of host.docker.internal.
       - ALPHA_VANTAGE_API_KEY=${ALPHA_VANTAGE_API_KEY:-}
       - NEWS_SUMMARY_URL=http://ai:8000/analyze/news-summary
+      # The workflows read $env.* in expressions; n8n denies that by default.
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
     volumes:
       - n8n-data:/home/node/.n8n
     depends_on:

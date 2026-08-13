@@ -103,7 +103,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.NEWS_SUMMARY_URL || 'http://host.docker.internal:8000/analyze/news-summary' }}",
+        "url": "http://ai:8000/analyze/news-summary",
         "sendBody": true,
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json) }}",
@@ -127,7 +127,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Build a NewsEvent upsert from the AI's structured summary.\nfunction esc(v) {\n  if (v === null || v === undefined || v === '') return 'NULL';\n  return \"'\" + String(v).replace(/'/g, \"''\") + \"'\";\n}\nfunction hashId(s) {\n  let h = 5381;\n  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;\n  return 'news_' + h.toString(16);\n}\n\nconst ai = $json || {};\nconst now = new Date();\nconst scheduledAt = now.toISOString().slice(0, 19).replace('T', ' '); // naive UTC\nconst impact = ['LOW', 'MEDIUM', 'HIGH'].includes(ai.impact) ? ai.impact : 'LOW';\nconst currency = String(ai.currency || 'USD').trim().toUpperCase().slice(0, 10) || 'USD';\nconst summary = String(ai.summary || '').slice(0, 1000);\nif (!summary) return [];\nconst title = ('News digest: ' + summary).slice(0, 200);\nconst id = hashId(title + '|' + scheduledAt);\n\nconst query =\n  'INSERT INTO \"NewsEvent\" (\"id\",\"title\",\"impact\",\"currency\",\"scheduledAt\",\"aiSummary\",\"createdAt\") VALUES (' +\n  [esc(id), esc(title), esc(impact), esc(currency), esc(scheduledAt), esc(summary)].join(',') +\n  ', now()) ON CONFLICT (\"title\",\"scheduledAt\") DO UPDATE SET \"aiSummary\"=EXCLUDED.\"aiSummary\",\"impact\"=EXCLUDED.\"impact\";';\nreturn [{ json: { query } }];"
+        "jsCode": "// Build a NewsEvent upsert from the AI's structured summary.\nfunction esc(v) {\n  if (v === null || v === undefined || v === '') return 'NULL';\n  return \"'\" + String(v).replace(/'/g, \"''\") + \"'\";\n}\nfunction hashId(s) {\n  let h = 5381;\n  for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;\n  return 'news_' + h.toString(16);\n}\n\nconst ai = $json || {};\nconst now = new Date();\nconst scheduledAt = now.toISOString().slice(0, 19).replace('T', ' '); // naive UTC\n// Digests are commentary stamped scheduledAt=now, not scheduled releases -\n// HIGH would trip the risk engine's after-release blackout on every run.\nconst impact = ['LOW', 'MEDIUM'].includes(ai.impact) ? ai.impact : 'MEDIUM';\nconst currency = String(ai.currency || 'USD').trim().toUpperCase().slice(0, 10) || 'USD';\nconst summary = String(ai.summary || '').slice(0, 1000);\nif (!summary) return [];\nconst title = ('News digest: ' + summary).slice(0, 200);\nconst id = hashId(title + '|' + scheduledAt);\n\nconst query =\n  'INSERT INTO \"NewsEvent\" (\"id\",\"title\",\"impact\",\"currency\",\"scheduledAt\",\"aiSummary\",\"createdAt\") VALUES (' +\n  [esc(id), esc(title), esc(impact), esc(currency), esc(scheduledAt), esc(summary)].join(',') +\n  ', now()) ON CONFLICT (\"title\",\"scheduledAt\") DO UPDATE SET \"aiSummary\"=EXCLUDED.\"aiSummary\",\"impact\"=EXCLUDED.\"impact\";';\nreturn [{ json: { query } }];"
       },
       "id": "b6666666-6666-4666-8666-666666666666",
       "name": "Build NewsEvent upsert",

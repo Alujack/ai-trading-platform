@@ -6,6 +6,7 @@ import { monitorOpenTrades, runWeeklyJournalReview } from "./paperTrading";
 import { runDailyBriefing } from "./dailyBriefing";
 import { sendDailyNewsBrief } from "./newsBrief";
 import { sendDataFreshnessAlert } from "./dataFreshness";
+import { expireStaleRecommendations } from "./reviewAgent";
 import { expireStaleApprovals } from "../telegram/approvals";
 
 function isLiveBroker(): boolean {
@@ -153,6 +154,10 @@ async function runExpiryTick(): Promise<void> {
     const r = await expireStaleApprovals();
     if (r.expired > 0) {
       console.log(`[approvalExpiry] ${new Date().toISOString()} expired=${r.expired}`);
+    }
+    const rec = await expireStaleRecommendations();
+    if (rec.expired > 0) {
+      console.log(`[approvalExpiry] ${new Date().toISOString()} recommendations_expired=${rec.expired}`);
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

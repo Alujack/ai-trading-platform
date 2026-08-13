@@ -1,6 +1,8 @@
 import { prisma } from "../lib/prisma";
 import { redis } from "../lib/redis";
+import { getMarketContext, type MarketContextPayload } from "../services/marketContext";
 import { computePerformance, type TradeStats } from "../services/performance";
+import { tradedPairs } from "./dataFreshness";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -31,6 +33,30 @@ export interface DailyBriefing {
   recent24h: BriefingTrade[];
   upcomingHighImpactNews: { title: string; currency: string; scheduledAt: string }[];
   topLessons: string[];
+  // Phase 3 market-context agent: the AI's morning read (bias, levels, risks)
+  // for each traded series. Empty when the AI service is unreachable.
+  marketContext: MarketContextPayload[];
+}
+
+/** Market context for every traded series — best-effort, never throws. */
+export async function collectMarketContext(): Promise<MarketContextPayload[]> {
+  const out: MarketContextPayload[] = [];
+  try {
+    for (const { symbol, timeframe } of await tradedPairs()) {
+      try {
+        out.push(await getMarketContext(symbol, timeframe));
+      } catch (err) {
+        console.warn(
+          `[dailyBriefing] market context unavailable for ${symbol}/${timeframe}: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+  } catch (err) {
+    console.warn(
+      `[dailyBriefing] market context skipped: ${err instanceof Error ? err.message : err}`,
+    );
+  }
+  return out;
 }
 
 /**
@@ -95,6 +121,8 @@ export async function runDailyBriefing(): Promise<DailyBriefing> {
     .filter((l): l is string => Boolean(l))
     .slice(0, 5);
 
+  const marketContext = await collectMarketContext();
+
   const briefing: DailyBriefing = {
     generatedAt: now.toISOString(),
     performance: {
@@ -110,6 +138,7 @@ export async function runDailyBriefing(): Promise<DailyBriefing> {
       scheduledAt: n.scheduledAt.toISOString(),
     })),
     topLessons,
+    marketContext,
   };
 
   try {
@@ -123,7 +152,8 @@ export async function runDailyBriefing(): Promise<DailyBriefing> {
   console.log(
     `[dailyBriefing] ${now.toISOString()} trades=${perf.totalTrades} win=${perf.winRate}% ` +
       `expectancy=$${perf.expectancy} R=${briefing.performance.rExpectancy} PF=${perf.profitFactor} ` +
-      `recent24h=${recent24h.length} highImpactNews=${news.length}`,
+      `recent24h=${recent24h.length} highImpactNews=${news.length} ` +
+      `marketContext=${marketContext.map((m) => `${m.symbol}/${m.timeframe}:${m.bias}`).join(",") || "none"}`,
   );
   return briefing;
 }

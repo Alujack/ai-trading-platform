@@ -2,6 +2,12 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { redis } from "../lib/redis";
 import { calculatePositionSize } from "../risk/riskEngine";
+import {
+  collectTunables,
+  processReviewProposals,
+  type ReviewProposal,
+  type TunableConfigField,
+} from "./reviewAgent";
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL ?? "http://localhost:8000";
 const WEEKLY_REVIEW_WINDOW_DAYS = 7;
@@ -334,6 +340,8 @@ export interface WeeklyReviewResult {
   strengths?: string[];
   weaknesses?: string[];
   suggestions?: string[];
+  proposals?: ReviewProposal[];
+  recommendationsCreated?: number;
 }
 
 interface JournalReviewResponse {
@@ -341,6 +349,7 @@ interface JournalReviewResponse {
   strengths: string[];
   weaknesses: string[];
   suggestions: string[];
+  proposals?: ReviewProposal[];
 }
 
 export async function runWeeklyJournalReview(): Promise<WeeklyReviewResult> {
@@ -356,6 +365,26 @@ export async function runWeeklyJournalReview(): Promise<WeeklyReviewResult> {
     console.log("[paperTrading] weekly review skipped — no closed trades in last 7 days");
     return { status: "skipped", reason: "no_trades", tradeCount: 0 };
   }
+
+  // Tunables give the reviewer permission to PROPOSE config changes (Phase 3
+  // agentic hardening) — proposals are journaled + human-approved, never
+  // auto-applied. Best-effort: a failure here just means no proposals.
+  let tunables: TunableConfigField[] = [];
+  try {
+    tunables = await collectTunables();
+  } catch (err) {
+    console.warn(
+      `[paperTrading] weekly review tunables unavailable: ${err instanceof Error ? err.message : err}`,
+    );
+  }
+
+  const pnls = trades.map((t) => (t.profitLoss ? num(t.profitLoss) : 0));
+  const stats = {
+    tradeCount: trades.length,
+    wins: pnls.filter((p) => p > 0).length,
+    losses: pnls.filter((p) => p < 0).length,
+    netPnL: Math.round(pnls.reduce((a, b) => a + b, 0) * 100) / 100,
+  };
 
   const payload = {
     trades: trades.map((t) => {
@@ -373,6 +402,8 @@ export async function runWeeklyJournalReview(): Promise<WeeklyReviewResult> {
         aiReview: journal?.aiReview ?? null,
       };
     }),
+    tunables,
+    stats,
   };
 
   try {
@@ -390,10 +421,26 @@ export async function runWeeklyJournalReview(): Promise<WeeklyReviewResult> {
     }
     const review = (await res.json()) as JournalReviewResponse;
     console.log(
-      `[paperTrading] weekly review ok trades=${trades.length} patterns=${review.patterns.length} suggestions=${review.suggestions.length}`,
+      `[paperTrading] weekly review ok trades=${trades.length} patterns=${review.patterns.length} suggestions=${review.suggestions.length} proposals=${review.proposals?.length ?? 0}`,
     );
     console.log("[paperTrading] weekly review result:", JSON.stringify(review));
-    return { status: "ok", tradeCount: trades.length, ...review };
+
+    // Journal + alert any config proposals; the agent never applies them itself.
+    let recommendationsCreated = 0;
+    if (review.proposals?.length) {
+      try {
+        const r = await processReviewProposals(review.proposals);
+        recommendationsCreated = r.created;
+        console.log(
+          `[paperTrading] weekly review proposals created=${r.created} rejected=${r.rejected} alerted=${r.alerted}`,
+        );
+      } catch (err) {
+        console.error(
+          `[paperTrading] weekly review proposal processing failed: ${err instanceof Error ? err.message : err}`,
+        );
+      }
+    }
+    return { status: "ok", tradeCount: trades.length, recommendationsCreated, ...review };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error(`[paperTrading] weekly review unreachable: ${msg}`);

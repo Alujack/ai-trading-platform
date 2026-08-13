@@ -270,6 +270,34 @@ model BrokerCredential {
   @@index([isActive])
 }
 
+// A config change proposed by an analysis agent (e.g. the weekly journal
+// review). This row IS the journal of the recommendation: agents never edit
+// production config — a human approves via Telegram, and only then is the
+// change applied (with a ConfigAudit entry).
+model AgentRecommendation {
+  id            String         @id @default(cuid())
+  agent         String // "weekly_review"
+  entity        String // "RiskConfig" | "ExecutionSetting" | "Strategy"
+  scope         String // "GLOBAL" | "STRATEGY" | "SYMBOL"
+  scopeKey      String // ""(global) | strategyName | symbol
+  field         String // e.g. "riskPerTradePct" | "mode" | "timeframes"
+  currentValue  Json
+  proposedValue Json
+  rationale     String
+  status        ApprovalStatus @default(PENDING)
+  chatId        String?
+  messageId     String? // Telegram message id (for editMessageText)
+  decidedBy     String? // Telegram user id/name who acted
+  decidedAt     DateTime?
+  appliedAt     DateTime? // set when the approved change was written to config
+  expiresAt     DateTime
+  createdAt     DateTime       @default(now())
+
+  @@index([status])
+  @@index([expiresAt])
+  @@index([createdAt])
+}
+
 // Human-in-the-loop approval for CONFIRM-mode signals.
 model Approval {
   id        String         @id @default(cuid())

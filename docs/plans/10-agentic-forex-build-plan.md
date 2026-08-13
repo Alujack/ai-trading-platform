@@ -173,11 +173,78 @@ This is the platform working as designed: the validation gates exist precisely s
   provider in `services/ai` (model default + auto-preference order +
   16K-token/120s headroom for its always-on thinking); Gemini verified working
   and remains active until an `ANTHROPIC_API_KEY` is provided.
+- **Phase 3 done (2026-08-13, same day).** Agentic hardening shipped:
+  - *Regime gate:* verified ON in the worker (`STRATEGY_REGIME_GATING`
+    defaults true, no override set) with every gated candidate logged
+    (`candidate_gated … regime= allowed= reason=`). Note: `sweep_mss` declares
+    all three known regimes — exactly the configuration that was validated —
+    so the gate's live job is UNKNOWN-fail-open plus logging, not filtering.
+  - *News agent → data:* both n8n workflows imported headlessly (CLI
+    credential with pinned id `tradingdbcred0001`, `import:workflow`,
+    activate, restart) and NewsEvent seeded immediately with a one-off
+    ForexFactory fetch that mirrors workflow A's ids/upsert (73 events, dedupe
+    verified). Workflow B's first scheduled run failed on n8n's default
+    `$env` lockdown → AI-summary node URL patched to the in-network literal
+    `http://ai:8000/analyze/news-summary` and re-imported;
+    `N8N_BLOCK_ENV_ACCESS_IN_NODE=false` added to compose (container recreated
+    same day — env access live). Workflow B verified green on its 05:00 UTC
+    scheduled tick: Fed RSS → Gemini summary → NewsEvent upsert.
+    **Three news-layer bugs found and fixed:**
+    1. The SYMBOL XAUUSD risk row had `newsBeforeMin=0`, silently disarming
+       the pre-news blackout on the one traded symbol — re-armed to 30 via
+       audited write (`system:plan10-phase3`), effective window now −30/+30m.
+    2. The gate fetched only FUTURE events, so `isNewsWindow`'s after-release
+       branch (`newsAfterMin`) was dead code — `gate.ts` now fetches a 4h
+       look-back too, arming the block for 30m after each red-folder print.
+    3. Workflow B stamps digests `scheduledAt=now`; with fix 2 live, a
+       HIGH-rated digest every 30 min would have blocked USD trading
+       permanently — digest impact is now clamped to MEDIUM in the workflow
+       (commentary is context for the AI, never a blackout trigger); the two
+       existing HIGH digest rows were downgraded.
+  - *Review agent → proposals, not actions:* new `AgentRecommendation` table +
+    `apps/api/src/execution/reviewAgent.ts`. The weekly journal review now
+    sends the AI a whitelist of tunables (bounds tighter than human
+    `RISK_BOUNDS`; execution mode proposals limited to OFF/CONFIRM — the agent
+    can never propose AUTO; strategy scope arrays de-scope only) and journals
+    every returned proposal as a PENDING row with a Telegram approve/reject
+    card (`rca:`/`rcr:` callbacks). Approval re-validates against live config,
+    then applies through the same audited store path as the UI
+    (`writeRiskConfig`/`writeExecutionMode`, actor `"telegram:<id> via
+    weekly_review"`). 72h TTL, minute-cron expiry. Smoke-tested end-to-end:
+    out-of-bounds and AUTO-escalation proposals rejected at the gate; a valid
+    proposal journaled → approved → applied → audited → reverted
+    (`apps/api/scripts/phase3-smoke.ts`).
+  - *Market-context agent:* builder extracted to
+    `apps/api/src/services/marketContext.ts` (route now delegates); the 06:00
+    UTC daily briefing embeds a per-traded-pair AI read (bias/levels/risks)
+    and the morning Telegram brief gained a **DESK CALL** section stating the
+    regime, the levels, and the risks — verified rendering with live Gemini.
+  - *AI schema:* `/analyze/journal-review` accepts `tunables` + `stats` and
+    returns structured `proposals`; Gemini schema converter now inlines
+    Pydantic `$defs` (first nested response model). Live Gemini test produced
+    in-bounds, evidence-cited proposals.
+  - *Exit gate:* stale series, regime gating, risk blocks, and gate rejections
+    all log reasons; every agent recommendation is a journaled DB row applied
+    only after human approval. ✅
+- **Phase 4 concluded (2026-08-13, same day) — EURUSD REJECTED. See
+  [docs/research/eurusd-validation-2026-08-13.md](../research/eurusd-validation-2026-08-13.md).**
+  Deep TwelveData backfill (40,303 bars, 2020-03 →) + full-series indicators +
+  130-fold walk-forward: 205 OOS trades, **−0.207R / PF 0.69**, negative in
+  every era — including −0.343R in the mid-2024+ regime that carries gold.
+  July's +R read (39 trades) was small-sample noise. Random-baseline and
+  cost-stress steps moot (nothing positive to qualify). Per the exit gate,
+  GBPUSD/USDJPY are not attempted; **the desk stays XAUUSD 60min only.**
+  Also completed: XAUUSD 5min (42,716 bars → 2026-01) and daily (4,955 bars →
+  2007) top-ups when the provider quota reset.
+- **Phase 5 remains blocked on operator credentials** (see below). Everything
+  in this plan that can run without operator secrets is now implemented.
 - **Blocked on operator:** `ANTHROPIC_API_KEY` (root `.env`, then
   `docker restart trading-ai`) to activate Claude as validator; Telegram
   credentials (`TELEGRAM_BOT_TOKEN` etc.) for staleness alerts, daily briefs,
-  and any future CONFIRM flows; MT5 demo credentials for the bridge
-  re-backfill and Phase 5.
+  news briefs, and approval of weekly-review config proposals; MT5 demo
+  credentials for the bridge re-backfill and Phase 5. Optional:
+  `ALPHA_VANTAGE_API_KEY` to enable the Alpha Vantage headline branch of
+  workflow B (env access already enabled on the n8n container).
 
 *Build plan · ai-trading-platform · original validation numbers from 2026-07-28
 runs, refreshed 2026-08-13 in Phase 1 · risk defaults from

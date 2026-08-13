@@ -5,6 +5,7 @@ import { SYMBOL_CURRENCIES } from "../config/defaults";
 import { getExecutionMap } from "../config/resolve";
 import { armSystem, setKillSwitch, writeExecutionMode } from "../config/store";
 import { isBreakerTrippedToday } from "../execution/executionPolicy";
+import { applyRecommendationDecision } from "../execution/reviewAgent";
 import { prisma } from "../lib/prisma";
 import { asyncHandler } from "../middleware/asyncHandler";
 import { validate } from "../middleware/validate";
@@ -285,13 +286,25 @@ router.post(
             if (cq.id) await answerCallbackQuery(cq.id, "Not authorized.");
             return;
           }
-          const [kind, approvalId] = (cq.data ?? "").split(":");
-          if ((kind !== "apv" && kind !== "rej") || !approvalId) {
+          const [kind, targetId] = (cq.data ?? "").split(":");
+          const decidedBy = `telegram:${userId}`;
+
+          // Agent-recommendation cards (weekly review config proposals).
+          if ((kind === "rca" || kind === "rcr") && targetId) {
+            const rec = await applyRecommendationDecision(targetId, kind === "rca", decidedBy);
+            if (cq.id) await answerCallbackQuery(cq.id, rec.message);
+            if (chatId && messageId) {
+              const stamp = new Date().toISOString().replace("T", " ").slice(0, 16);
+              await editMessageText(chatId, messageId, `${rec.message} · ${stamp} UTC`);
+            }
+            return;
+          }
+
+          if ((kind !== "apv" && kind !== "rej") || !targetId) {
             if (cq.id) await answerCallbackQuery(cq.id, "Unrecognized action.");
             return;
           }
-          const decidedBy = `telegram:${userId}`;
-          const result = await applyApprovalDecision(approvalId, kind === "apv", decidedBy);
+          const result = await applyApprovalDecision(targetId, kind === "apv", decidedBy);
           if (cq.id) await answerCallbackQuery(cq.id, result.message);
           if (chatId && messageId) {
             const stamp = new Date().toISOString().replace("T", " ").slice(0, 16);

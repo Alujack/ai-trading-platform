@@ -103,8 +103,30 @@ class ValidateSignalRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class TunableConfigField(BaseModel):
+    """One whitelisted config field the reviewer may propose changing.
+
+    The API layer decides what is tunable and within which bounds; the model
+    must only ever propose changes to fields listed here.
+    """
+
+    model_config = ConfigDict(extra="allow", populate_by_name=True)
+
+    entity: str  # "RiskConfig" | "ExecutionSetting" | "Strategy"
+    scope: str  # "GLOBAL" | "STRATEGY" | "SYMBOL"
+    scope_key: str = Field(..., alias="scopeKey")
+    field: str
+    current_value: Any = Field(..., alias="currentValue")
+    constraint: str | None = None  # human-readable bounds, e.g. "0.25–1.5" or "subset of current"
+
+
 class JournalReviewRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     trades: list[JournalTrade] = Field(..., min_length=1, max_length=100)
+    # Optional context for config-change proposals (weekly review agent).
+    tunables: list[TunableConfigField] = Field(default_factory=list, max_length=40)
+    stats: dict[str, Any] | None = None
 
 
 class TradeReviewInput(BaseModel):
@@ -180,6 +202,24 @@ class ValidateSignalResponse(BaseModel):
     concerns: list[str]
 
 
+class ProposedConfigChange(BaseModel):
+    """One reviewer-proposed config change.
+
+    Proposals are recommendations only: the API layer journals each one and a
+    human approves or rejects it via Telegram before anything is applied. The
+    model never edits production config directly.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    entity: Literal["RiskConfig", "ExecutionSetting", "Strategy"]
+    scope: Literal["GLOBAL", "STRATEGY", "SYMBOL"]
+    scopeKey: str  # noqa: N815 — wire format is camelCase
+    field: str
+    proposedValue: str  # noqa: N815 — JSON-encoded value, e.g. "0.75", "\"CONFIRM\"", "[\"60min\"]"
+    rationale: str
+
+
 class JournalReviewResponse(BaseModel):
     """Output schema for /analyze/journal-review."""
 
@@ -189,6 +229,7 @@ class JournalReviewResponse(BaseModel):
     strengths: list[str]
     weaknesses: list[str]
     suggestions: list[str]
+    proposals: list[ProposedConfigChange]
 
 
 class TradeReviewResponse(BaseModel):

@@ -59,7 +59,7 @@ function effectiveNow(now: Date, symbol: string): Date {
 /** (symbol, timeframe) pairs the desk actually trades: the union of every
  *  enabled strategy's params scoping. A strategy without explicit scoping
  *  widens the check to every distinct pair present in the Candle table. */
-async function tradedPairs(): Promise<Array<{ symbol: string; timeframe: string }>> {
+export async function tradedPairs(): Promise<Array<{ symbol: string; timeframe: string }>> {
   const strategies = await prisma.strategy.findMany({ where: { enabled: true } });
   if (strategies.length === 0) return [];
   const pairs = new Map<string, { symbol: string; timeframe: string }>();

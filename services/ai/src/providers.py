@@ -69,6 +69,7 @@ class MockProvider:
                 "strengths": ["Consistent position sizing"],
                 "weaknesses": ["Exits a touch early on winners"],
                 "suggestions": ["Let winners run to the planned target before scaling out"],
+                "proposals": [],
             }
         elif model == "TradeReviewResponse":
             pl = ((user_payload or {}).get("trade") or {}).get("profitLoss")
@@ -149,6 +150,23 @@ class AnthropicProvider:
 _GEMINI_SCHEMA_KEYS = {"type", "properties", "required", "items", "enum", "nullable", "description"}
 
 
+def _inline_refs(node: Any, defs: dict[str, Any]) -> Any:
+    """Resolve Pydantic's `#/$defs/...` references in place.
+
+    Gemini's response_schema has no notion of $ref, so nested response models
+    (e.g. JournalReviewResponse.proposals) must be inlined before stripping.
+    Assumes non-recursive models — true for every schema in this service.
+    """
+    if isinstance(node, dict):
+        ref = node.get("$ref")
+        if isinstance(ref, str):
+            return _inline_refs(defs.get(ref.rsplit("/", 1)[-1], {}), defs)
+        return {k: _inline_refs(v, defs) for k, v in node.items() if k != "$defs"}
+    if isinstance(node, list):
+        return [_inline_refs(v, defs) for v in node]
+    return node
+
+
 def _to_gemini_schema(node: Any) -> Any:
     if isinstance(node, dict):
         out: dict[str, Any] = {}
@@ -180,7 +198,8 @@ class GeminiProvider:
         from google.genai import errors as genai_errors
         from google.genai import types
 
-        schema = _to_gemini_schema(response_model.model_json_schema())
+        raw = response_model.model_json_schema()
+        schema = _to_gemini_schema(_inline_refs(raw, raw.get("$defs", {})))
         try:
             resp = self._client.models.generate_content(
                 model=self._model,

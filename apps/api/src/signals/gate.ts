@@ -121,10 +121,13 @@ export async function gateCandidate(candidate: SignalCandidate): Promise<GateRes
     orderBy: { timestamp: "desc" },
   });
 
+  // Two-sided fetch: isNewsWindow also blocks for newsAfterMin AFTER a release,
+  // so recent-past events must be included — a future-only query made the
+  // after-window dead code. 4h covers the max configurable after-window (240m).
   const upcomingNews = await prisma.newsEvent.findMany({
-    where: { scheduledAt: { gt: new Date() } },
+    where: { scheduledAt: { gt: new Date(Date.now() - 4 * 60 * 60 * 1000) } },
     orderBy: { scheduledAt: "asc" },
-    take: NEWS_LOOKAHEAD,
+    take: NEWS_LOOKAHEAD + 5,
   });
 
   // Resolve runtime config for this (strategy, symbol) — most-specific-wins.
