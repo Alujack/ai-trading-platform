@@ -5,6 +5,7 @@ import { runScalpManagementTick } from "./scalpManager";
 import { monitorOpenTrades, runWeeklyJournalReview } from "./paperTrading";
 import { runDailyBriefing } from "./dailyBriefing";
 import { sendDailyNewsBrief } from "./newsBrief";
+import { sendDataFreshnessAlert } from "./dataFreshness";
 import { expireStaleApprovals } from "../telegram/approvals";
 
 function isLiveBroker(): boolean {
@@ -126,6 +127,16 @@ async function runDailyTick(notify: boolean = true): Promise<void> {
       console.log(
         `[newsBrief] ${new Date().toISOString()} sent=${r.sent}${r.reason ? ` reason=${r.reason}` : ""}`,
       );
+    }
+    // Daily staleness alert (plan 10, Phase 0): scheduled runs only, so API
+    // restarts don't spam the chat.
+    if (notify) {
+      const f = await sendDataFreshnessAlert();
+      if (f.stale > 0 || f.sent) {
+        console.log(
+          `[dataFreshness] ${new Date().toISOString()} stale=${f.stale} sent=${f.sent}${f.reason ? ` reason=${f.reason}` : ""}`,
+        );
+      }
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

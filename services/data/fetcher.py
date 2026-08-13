@@ -13,7 +13,7 @@ import json
 import logging
 import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, time as dt_time, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -167,6 +167,24 @@ _TWELVEDATA_INTERVAL: dict[str, str] = {
 }
 
 
+# FX/metals venues are closed Fri 22:00 → Sun 22:00 UTC, but TwelveData serves
+# flat weekend quote bars in that window anyway (even with timezone=UTC pinned).
+# Storing them corrupts session/killzone logic and inflates bar counts, so they
+# are dropped at the source. Crypto trades through the weekend and is exempt.
+_WEEKEND_OPEN_SYMBOLS = {"BTCUSD"}
+
+
+def _in_weekend_gap(ts: datetime) -> bool:
+    wd = ts.weekday()  # Mon=0 … Sun=6
+    if wd == 4:  # Friday
+        return ts.time() >= dt_time(22, 0)
+    if wd == 5:  # Saturday
+        return True
+    if wd == 6:  # Sunday
+        return ts.time() < dt_time(22, 0)
+    return False
+
+
 def _twelvedata_key() -> str:
     key = os.environ.get("TWELVEDATA_API_KEY")
     if not key:
@@ -213,9 +231,12 @@ async def _fetch_twelvedata(
         raise RuntimeError(f"Twelve Data error: {payload.get('message', payload)}")
 
     values: list[dict[str, str]] = payload.get("values") or []
+    drop_weekend = symbol not in _WEEKEND_OPEN_SYMBOLS
     rows: list[CandleRow] = []
     for entry in values:
         ts = _parse_twelvedata_timestamp(entry["datetime"])
+        if drop_weekend and _in_weekend_gap(ts):
+            continue
         # Volume may be missing or empty string for FX/metals on Twelve Data.
         raw_vol = entry.get("volume") or "0"
         rows.append(

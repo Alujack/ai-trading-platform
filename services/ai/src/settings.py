@@ -16,15 +16,18 @@ class Settings(BaseSettings):
 
     # --- Anthropic (Claude) ---
     anthropic_api_key: str | None = Field(default=None, description="Anthropic API key.")
-    anthropic_model: str = Field(default="claude-sonnet-4-6")
+    anthropic_model: str = Field(default="claude-opus-5")
 
     # --- Google (Gemini) ---
     gemini_api_key: str | None = Field(default=None, description="Google Gemini API key.")
     gemini_model: str = Field(default="gemini-2.5-flash")
 
     # --- Shared generation knobs ---
-    max_output_tokens: int = Field(default=4096, ge=512, le=16000, alias="anthropic_max_tokens")
-    request_timeout_s: float = Field(default=60.0, gt=0, alias="anthropic_timeout_s")
+    # On claude-opus-5 thinking is on by default and max_tokens caps thinking +
+    # response text together — a tight cap truncates verdicts mid-JSON, so give
+    # the full non-streaming headroom.
+    max_output_tokens: int = Field(default=16000, ge=512, le=16000, alias="anthropic_max_tokens")
+    request_timeout_s: float = Field(default=120.0, gt=0, alias="anthropic_timeout_s")
 
     # Preferred provider on startup. "auto" picks a configured real provider,
     # falling back to "mock". May be flipped at runtime via POST /provider.

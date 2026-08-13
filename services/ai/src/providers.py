@@ -315,8 +315,9 @@ def _default(settings: Settings) -> str:
     avail = available(settings)
     if settings.default_provider in avail:
         return settings.default_provider
-    # "auto": prefer a configured real provider over mock.
-    for name in ("gemini", "anthropic"):
+    # "auto": prefer a configured real provider over mock. Claude first — it is
+    # the desk's reasoning model of choice; Gemini stays as the fallback.
+    for name in ("anthropic", "gemini"):
         if name in avail:
             return name
     return "mock"

@@ -1,8 +1,14 @@
 /**
- * Enable the ict_sweep_mss day-trading strategy (XAUUSD, 15min + 60min) — the one
- * ICT detector that passed all three validation gates on gold (2026-07-28):
- * walk-forward OOS +0.23R/PF 1.48 (60min) and +0.25R/PF 1.52 (15min), and beat
- * 100% of geometry-matched random baselines on 60min (p=0.000; 15min p=0.050).
+ * Enable the ict_sweep_mss day-trading strategy (XAUUSD, 60min only) — the one
+ * ICT detector that passed validation gates on gold.
+ *
+ * 2026-08-13 re-validation on repaired UTC data (weekend bars filtered, history
+ * deepened to 2021+/2024+): 15min is DEAD over 2.5 years (WF-OOS −0.09R, PF 0.85,
+ * 297 trades) — its July pass was a one-regime artifact of the short Dec-2025+
+ * series. 60min is regime-dependent: flat 2021–2024 (−0.04R), but +0.26R WF-OOS /
+ * PF 1.38 fixed-params since Jun 2024 (68 trades, maxDD 9%), reproducing the
+ * 2026-07-28 result (+0.23R/PF 1.48). Scope is therefore 60min ONLY; 15min must
+ * re-earn its slot through the full Phase 1 gauntlet before being re-added.
  *
  * Idempotent: upserts the Strategy row + a STRATEGY-scoped RiskConfig +
  * ExecutionSetting, so re-running is safe. Run from apps/api:
@@ -45,7 +51,7 @@ async function main(): Promise<void> {
     update: {
       enabled: true,
       regimes: "TRENDING,RANGING,VOLATILE",
-      params: { symbols: ["XAUUSD"], timeframes: ["15min", "60min"] },
+      params: { symbols: ["XAUUSD"], timeframes: ["60min"] },
     },
     create: {
       name: "ict_sweep_mss",
@@ -55,7 +61,7 @@ async function main(): Promise<void> {
       regimes: "TRENDING,RANGING,VOLATILE",
       // Runner-level scoping only; {} strategy knobs = validated code defaults
       // (swingK 2, sweepLookback 5, atrBuffer 0.5, minRr 2.0).
-      params: { symbols: ["XAUUSD"], timeframes: ["15min", "60min"] },
+      params: { symbols: ["XAUUSD"], timeframes: ["60min"] },
     },
   });
 
@@ -83,7 +89,7 @@ async function main(): Promise<void> {
   });
 
   console.log(
-    `seeded ict_sweep_mss: XAUUSD 15min+60min, mode=${mode}, ` +
+    `seeded ict_sweep_mss: XAUUSD 60min, mode=${mode}, ` +
       `risk=${riskPct}%/trade, dailyLossCap=${dailyLossPct}%, maxOpenTrades=2`,
   );
 }

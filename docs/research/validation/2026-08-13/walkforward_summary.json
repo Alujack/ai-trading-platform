@@ -1,0 +1,38 @@
+[
+  {
+    "strategy": "ict_sweep_mss",
+    "symbol": "XAUUSD",
+    "timeframe": "15min",
+    "optimized": true,
+    "objective": "expectancy_r",
+    "folds": 200,
+    "profitable_folds": 65,
+    "walk_forward_efficiency": null,
+    "oos_trades": 297,
+    "oos_win_rate": 0.3468013468013468,
+    "oos_profit_factor": 0.8522390893134506,
+    "oos_expectancy_r": -0.0913877400567238,
+    "oos_total_r": -27.142158796846967,
+    "oos_max_drawdown_r": 36.61940393938832,
+    "oos_max_consecutive_losses": 11,
+    "oos_sharpe_per_trade": -1.2551666252418359
+  },
+  {
+    "strategy": "ict_sweep_mss",
+    "symbol": "XAUUSD",
+    "timeframe": "60min",
+    "optimized": true,
+    "objective": "expectancy_r",
+    "folds": 105,
+    "profitable_folds": 43,
+    "walk_forward_efficiency": 1.4460832559385257,
+    "oos_trades": 182,
+    "oos_win_rate": 0.3901098901098901,
+    "oos_profit_factor": 1.1275192418818691,
+    "oos_expectancy_r": 0.07023662985194862,
+    "oos_total_r": 12.783066633054649,
+    "oos_max_drawdown_r": 15.81287555688808,
+    "oos_max_consecutive_losses": 9,
+    "oos_sharpe_per_trade": 0.7107751674724847
+  }
+]

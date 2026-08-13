@@ -1,0 +1,21 @@
+[
+  {
+    "symbol": "XAUUSD",
+    "timeframe": "60min",
+    "bars": 32768,
+    "target_strategy": "ict_sweep_mss",
+    "target_trades": 173,
+    "target_expectancy_r": 0.041395738621087495,
+    "target_profit_factor": 1.0511946312288105,
+    "target_total_r": 7.161462781448137,
+    "baseline_seeds": 100,
+    "baseline_mean_trades": 843.17,
+    "baseline_mean_expectancy_r": -0.048101711682841136,
+    "baseline_std_expectancy_r": 0.0423084040288974,
+    "baseline_p5_expectancy_r": -0.12022523564172956,
+    "baseline_p50_expectancy_r": -0.044987383155061886,
+    "baseline_p95_expectancy_r": 0.018736069331789933,
+    "p_value": 0.01,
+    "verdict": "TRADEABLE EDGE: positive expectancy (+0.041R) AND beats 99% of random (p=0.010)."
+  }
+]

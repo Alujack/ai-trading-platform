@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from datetime import datetime, timezone
 
 import asyncpg
 import httpx
@@ -30,6 +31,29 @@ from strategies import BarWindow, IndicatorBar, build_strategy
 log = logging.getLogger("data.strategy_runner")
 
 RUNNER_LOOKBACK_BARS = 5
+
+# Freshness guard: never evaluate strategies against a stale series. A signal
+# computed on old bars carries an entry/SL/TP that no longer reflects the
+# market — the July 2026 outage went unnoticed for weeks precisely because the
+# runner kept scanning frozen data without complaint. Allow 2× the timeframe
+# (ingestion lag + a missed fetch); daily gets 3 days so a weekend doesn't
+# false-alarm it.
+_STALE_AGE_LIMIT_S: dict[str, float] = {
+    "1min": 2 * 60,
+    "5min": 2 * 5 * 60,
+    "15min": 2 * 15 * 60,
+    "60min": 2 * 60 * 60,
+    "daily": 3 * 86_400,
+}
+
+
+def stale_age_limit_s(timeframe: str) -> float:
+    return _STALE_AGE_LIMIT_S.get(timeframe, 2 * 60 * 60)
+
+
+def _utcnow_naive() -> datetime:
+    """Naive UTC now, matching the Candle table's naive-UTC timestamps."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def _gate_url() -> str:
@@ -190,6 +214,36 @@ async def run_once(client: httpx.AsyncClient) -> int:
         return regime_cache[key]
 
     generated = 0
+    # One staleness verdict per (symbol, timeframe) per scan, so the skip is
+    # logged once instead of once per strategy.
+    stale_cache: dict[tuple[str, str], bool] = {}
+
+    async def _series_is_stale(symbol: str, timeframe: str) -> bool:
+        key = (symbol, timeframe)
+        if key not in stale_cache:
+            newest = await pool.fetchval(
+                'SELECT MAX("timestamp") FROM "Candle" WHERE "symbol" = $1 AND "timeframe" = $2',
+                symbol,
+                timeframe,
+            )
+            if newest is None:
+                stale_cache[key] = True
+                log.warning("series_stale symbol=%s tf=%s reason=no_candles", symbol, timeframe)
+            else:
+                age_s = (_utcnow_naive() - newest).total_seconds()
+                limit_s = stale_age_limit_s(timeframe)
+                stale_cache[key] = age_s > limit_s
+                if stale_cache[key]:
+                    log.warning(
+                        "series_stale symbol=%s tf=%s newest=%s age_s=%.0f limit_s=%.0f",
+                        symbol,
+                        timeframe,
+                        newest,
+                        age_s,
+                        limit_s,
+                    )
+        return stale_cache[key]
+
     for name, params in strategies:
         try:
             strategy = build_strategy(name, params)
@@ -216,6 +270,8 @@ async def run_once(client: httpx.AsyncClient) -> int:
                 continue
             for timeframe in timeframes:
                 if only_timeframes and timeframe not in only_timeframes:
+                    continue
+                if await _series_is_stale(symbol, timeframe):
                     continue
                 window = await _load_window(pool, symbol, timeframe, bars_needed)
                 if not window.bars:
