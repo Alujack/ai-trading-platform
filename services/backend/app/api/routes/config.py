@@ -6,7 +6,7 @@ controls; the raw-feed toggle is visibility-only and changes no execution check.
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Query, Response
 from pydantic import BaseModel, ConfigDict, Field, create_model
@@ -17,7 +17,14 @@ from ...core.serialization import js_number, ser
 from ...db.enums import ExecutionMode
 from ...db.models import RiskConfig
 from ...domain.config.defaults import RISK_BOUNDS, bounds_wire
-from ...domain.config.flags import RAW_FEED_FLAG, get_flag, set_flag
+from ...domain.config.flags import (
+    LAYER_KEYS,
+    RAW_FEED_FLAG,
+    get_flag,
+    layer_report,
+    set_all_layers,
+    set_flag,
+)
 from ...domain.config.resolve import get_execution_map, resolve_risk_config
 from ...domain.config.store import (
     arm_system,
@@ -70,6 +77,15 @@ class ReasonBody(BaseModel):
 class RawFeedBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
     enabled: bool
+
+
+class LayersBody(BaseModel):
+    """Either flip the whole stack (`mode`) or one layer (`layer` + `enabled`)."""
+
+    model_config = ConfigDict(extra="forbid")
+    mode: Literal["FULL", "STRATEGY_ONLY"] | None = None
+    layer: str | None = Field(default=None, max_length=40)
+    enabled: bool | None = None
 
 
 @router.get("/api/config/risk")
@@ -173,6 +189,56 @@ async def put_raw_feed(body: RawFeedBody, session: Db) -> dict[str, Any]:
         "ENABLED" if body.enabled else "disabled",
     )
     return {"ok": True, **state.as_dict()}
+
+
+# ---------------------------------------------------------------------------
+# Gate layers (switchable)
+# ---------------------------------------------------------------------------
+# Unlike the raw-feed toggle above, these CHANGE THE EXECUTION PATH. Off, a layer
+# stops filtering: no model reviews the setup, or no regime/hour/bias/range check
+# applies. `mode=STRATEGY_ONLY` clears all of them at once, so what reaches risk
+# is the strategy's raw opinion.
+#
+# What no switch here can reach — deliberately, per CLAUDE.md: the risk engine
+# (sizing, stop/RR validation, news blackout), the breakers, the portfolio caps
+# and the data-freshness guard. Every layer defaults ON.
+
+
+@router.get("/api/config/layers")
+async def get_layers(session: Db) -> dict[str, Any]:
+    return await layer_report(session)
+
+
+@router.put("/api/config/layers")
+async def put_layers(body: LayersBody, session: Db, response: Response) -> dict[str, Any]:
+    if body.mode is not None:
+        if body.layer is not None or body.enabled is not None:
+            response.status_code = 400
+            return {"error": "pass either mode, or layer+enabled — not both"}
+        report = await set_all_layers(session, ACTOR, body.mode == "FULL")
+        log.warning(
+            "[config] gate layers set to %s — %s",
+            body.mode,
+            "all filters active"
+            if body.mode == "FULL"
+            else "strategy output only; risk engine, breakers and caps still enforced",
+        )
+        return {"ok": True, **report}
+
+    if body.layer is None or body.enabled is None:
+        response.status_code = 400
+        return {"error": "pass mode, or both layer and enabled"}
+    if body.layer not in LAYER_KEYS:
+        response.status_code = 400
+        return {"error": f"unknown layer: {body.layer}"}
+
+    await set_flag(session, ACTOR, body.layer, body.enabled)
+    log.warning(
+        "[config] gate layer %s %s",
+        body.layer,
+        "ENABLED" if body.enabled else "DISABLED",
+    )
+    return {"ok": True, **await layer_report(session)}
 
 
 def _effective_wire(effective) -> dict[str, Any]:

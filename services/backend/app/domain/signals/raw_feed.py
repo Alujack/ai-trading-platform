@@ -40,6 +40,7 @@ BLOCKED_BY_TAGS = (
     "ai_score",
     "ai_judgment",
     "regime",
+    "stale_data",
     "risk_inputs",
     "risk_daily_loss",
     "risk_drawdown",
@@ -96,6 +97,8 @@ def classify_gate_outcome(status: str, reason: str | None = None) -> GateOutcome
             return "ai_judgment"
         if r.startswith("pre_gated_regime"):
             return "regime"
+        if r.startswith("pre_gated_stale_data"):
+            return "stale_data"
         if r.startswith("risk_rejected"):
             if _RISK_INPUTS.search(r):
                 return "risk_inputs"

@@ -7,16 +7,18 @@ runs AI validation + the risk engine and persists tagged PENDING signals — thi
 runner never writes to the Signal table directly.
 
 Two guards live HERE rather than in the gate: the freshness check below (never
-evaluate a stale series) and the regime gate. The freshness check is absolute —
-a signal priced off frozen bars is wrong, not "unfiltered". The regime gate is
-bypassable for VISIBILITY only, via the raw-feed flag (see `_raw_feed_enabled`):
-gated candidates are still posted, but tagged so they can never be promoted.
+evaluate a stale series) and the regime gate. Both are bypassable for VISIBILITY
+only, via the raw-feed flag (see `_raw_feed_enabled`): the candidate is still
+posted, but tagged `preGatedBy` so the gate records it and refuses it without
+running AI/risk — it can never become a Signal. With the flag off, both guards
+skip the series outright exactly as before.
 """
 from __future__ import annotations
 
 import json
 import logging
 import os
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 import asyncpg
@@ -72,6 +74,11 @@ def _raw_feed_url() -> str:
     return f"{base}/api/config/raw-feed"
 
 
+def _layers_url() -> str:
+    base = os.environ.get("API_PUBLIC_URL", "http://localhost:8000").rstrip("/")
+    return f"{base}/api/config/layers"
+
+
 def _raw_feed_env_default() -> bool:
     return os.environ.get("RAW_SIGNAL_FEED", "").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -94,6 +101,55 @@ async def _raw_feed_enabled(client: httpx.AsyncClient) -> bool:
     except Exception as exc:  # noqa: BLE001 — visibility feature; never break a scan
         log.debug("raw_feed_probe_failed err=%s falling_back_to_env", exc)
         return _raw_feed_env_default()
+
+
+@dataclass(slots=True)
+class LayerConfig:
+    """Which discretionary layers the operator has switched off this scan.
+
+    `param_overrides` are strategy-constructor params forced to False, and the
+    mapping comes from the API rather than being restated here — the backend's
+    `config.flags.LAYERS` registry stays the single source of truth for it.
+    """
+
+    regime_gating: bool = True
+    param_overrides: dict[str, bool] = field(default_factory=dict)
+
+    @property
+    def all_on(self) -> bool:
+        return self.regime_gating and not self.param_overrides
+
+
+async def _layer_config(client: httpx.AsyncClient) -> LayerConfig:
+    """Ask the API which layers are on. Asked once per scan.
+
+    Fails SAFE: any probe failure leaves every layer in place, so a backend blip
+    can only ever make the runner more selective, never less.
+    """
+    try:
+        resp = await client.get(_layers_url(), timeout=5.0)
+        resp.raise_for_status()
+        layers = resp.json().get("layers", [])
+    except Exception as exc:  # noqa: BLE001 — a probe failure must not skip a scan
+        log.debug("layers_probe_failed err=%s keeping_all_layers", exc)
+        return LayerConfig()
+
+    cfg = LayerConfig()
+    for layer in layers:
+        if not isinstance(layer, dict) or layer.get("enabled", True):
+            continue
+        if layer.get("key") == "regime_gating":
+            cfg.regime_gating = False
+        param = layer.get("param")
+        if isinstance(param, str) and param:
+            cfg.param_overrides[param] = False
+    if not cfg.all_on:
+        log.info(
+            "layers_off regime_gating=%s params=%s",
+            cfg.regime_gating,
+            sorted(cfg.param_overrides),
+        )
+    return cfg
 
 
 def _timeframes() -> list[str]:
@@ -237,7 +293,9 @@ async def run_once(client: httpx.AsyncClient) -> int:
 
     timeframes = _timeframes()
     symbols = _symbols()
-    gating = gating_enabled()
+    layers = await _layer_config(client)
+    # Env var and operator switch both have to allow it; either one can gate off.
+    gating = gating_enabled() and layers.regime_gating
     raw_feed = await _raw_feed_enabled(client)
     # Regime depends only on (symbol, timeframe), so classify each once per scan
     # and reuse across every strategy.
@@ -251,10 +309,12 @@ async def run_once(client: httpx.AsyncClient) -> int:
 
     generated = 0
     # One staleness verdict per (symbol, timeframe) per scan, so the skip is
-    # logged once instead of once per strategy.
-    stale_cache: dict[tuple[str, str], bool] = {}
+    # logged once instead of once per strategy. The value is None when fresh, or a
+    # human description of the staleness ("newest bar 72h old") that rides along to
+    # the raw feed so the operator sees HOW stale the prices are.
+    stale_cache: dict[tuple[str, str], str | None] = {}
 
-    async def _series_is_stale(symbol: str, timeframe: str) -> bool:
+    async def _series_staleness(symbol: str, timeframe: str) -> str | None:
         key = (symbol, timeframe)
         if key not in stale_cache:
             newest = await pool.fetchval(
@@ -263,13 +323,15 @@ async def run_once(client: httpx.AsyncClient) -> int:
                 timeframe,
             )
             if newest is None:
-                stale_cache[key] = True
+                stale_cache[key] = "no candles at all"
                 log.warning("series_stale symbol=%s tf=%s reason=no_candles", symbol, timeframe)
             else:
                 age_s = (_utcnow_naive() - newest).total_seconds()
                 limit_s = stale_age_limit_s(timeframe)
-                stale_cache[key] = age_s > limit_s
-                if stale_cache[key]:
+                if age_s > limit_s:
+                    age_min = age_s / 60
+                    age = f"{age_min / 60:.0f}h" if age_min >= 120 else f"{age_min:.0f}m"
+                    stale_cache[key] = f"newest bar {age} old (limit {limit_s / 60:.0f}m)"
                     log.warning(
                         "series_stale symbol=%s tf=%s newest=%s age_s=%.0f limit_s=%.0f",
                         symbol,
@@ -278,11 +340,15 @@ async def run_once(client: httpx.AsyncClient) -> int:
                         age_s,
                         limit_s,
                     )
+                else:
+                    stale_cache[key] = None
         return stale_cache[key]
 
     for name, params in strategies:
         try:
-            strategy = build_strategy(name, params)
+            # Layer switches override the stored params, so turning a filter off
+            # applies to every strategy without editing any Strategy row.
+            strategy = build_strategy(name, {**params, **layers.param_overrides})
         except KeyError as exc:
             log.error("strategy_unknown name=%s err=%s", name, exc)
             continue
@@ -307,7 +373,13 @@ async def run_once(client: httpx.AsyncClient) -> int:
             for timeframe in timeframes:
                 if only_timeframes and timeframe not in only_timeframes:
                     continue
-                if await _series_is_stale(symbol, timeframe):
+                # Stale series. With the raw feed off this is an absolute skip. With
+                # it on the candidate is still evaluated and posted for VISIBILITY,
+                # tagged with how stale the prices are — the gate refuses it without
+                # AI/risk, so a stale-priced candidate can never become a Signal or
+                # reach the broker. Read the tag before trading one by hand.
+                stale_detail = await _series_staleness(symbol, timeframe)
+                if stale_detail and not raw_feed:
                     continue
                 window = await _load_window(pool, symbol, timeframe, bars_needed)
                 if not window.bars:
@@ -338,7 +410,12 @@ async def run_once(client: httpx.AsyncClient) -> int:
                 candidates = strategy.evaluate(window)
                 for cand in candidates:
                     payload = cand.to_payload()
-                    if regime_gated:
+                    # Stale data outranks the regime tag: wrong prices are the more
+                    # important thing to show on the row.
+                    if stale_detail:
+                        payload["preGatedBy"] = "stale_data"
+                        payload["preGatedDetail"] = stale_detail
+                    elif regime_gated:
                         payload["preGatedBy"] = "regime"
                     outcome = await _post_candidate(client, gate_url, payload)
                     if outcome.startswith("generated"):

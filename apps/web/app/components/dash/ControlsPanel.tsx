@@ -8,15 +8,29 @@ import type {
   EffectiveRiskConfig,
   ExecutionMapResponse,
   ExecutionMode,
+  LayerMode,
+  LayersResponse,
   RiskConfigResponse,
 } from "@/lib/types";
-import { Panel, StatusDot } from "./ui";
+import { Panel, StatusDot, Toggle } from "./ui";
+
+const LAYERS_KEY = "/api/config/layers";
 
 const MODES: ExecutionMode[] = ["OFF", "AUTO", "CONFIRM"];
+const LAYER_MODE_COLOR: Record<LayerMode, string> = {
+  FULL: C.up,
+  STRATEGY_ONLY: C.warn,
+  MIXED: C.gold,
+};
+const LAYER_MODE_LABEL: Record<LayerMode, string> = {
+  FULL: "FULL STACK",
+  STRATEGY_ONLY: "STRATEGY ONLY",
+  MIXED: "PARTIAL",
+};
 const MODE_COLOR: Record<ExecutionMode, string> = { OFF: C.down, AUTO: C.up, CONFIRM: C.warn };
 const MODE_HELP: Record<ExecutionMode, string> = {
   OFF: "Signals still generate + log. Nothing opens. (Kill-switch)",
-  AUTO: "Open immediately after AI + risk approval.",
+  AUTO: "Open immediately once the gate approves (AI if enabled; risk always).",
   CONFIRM: "Send a Telegram alert and wait for your Approve.",
 };
 
@@ -50,12 +64,18 @@ export function ExecutionControlPanel() {
   const global = data?.global ?? "AUTO";
   const overrides = (data?.rows ?? []).filter((r) => r.scope !== "GLOBAL");
 
-  async function run(fn: () => Promise<void>) {
+  // The discretionary layers are switchable; the risk engine and breakers are
+  // not, and are deliberately not offered here — they are listed as fixed.
+  const { data: layers } = useSWR<LayersResponse>(LAYERS_KEY, fetcher, {
+    refreshInterval: 30_000,
+  });
+
+  async function run(fn: () => Promise<void>, key = "/api/config/execution") {
     setBusy(true);
     setErr(null);
     try {
       await fn();
-      await mutate("/api/config/execution");
+      await mutate(key);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Failed");
     } finally {
@@ -65,6 +85,8 @@ export function ExecutionControlPanel() {
 
   const setGlobal = (mode: ExecutionMode) =>
     run(() => api("/api/config/execution", "PUT", { scope: "GLOBAL", scopeKey: "", mode }));
+
+  const setLayers = (body: unknown) => run(() => api(LAYERS_KEY, "PUT", body), LAYERS_KEY);
 
   return (
     <Panel
@@ -146,6 +168,83 @@ export function ExecutionControlPanel() {
         >
           Arm (CONFIRM)
         </button>
+      </div>
+
+      <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8 }}>
+          <span style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: ".06em", color: C.muted }}>
+            Gate layers
+          </span>
+          {layers && (
+            <span style={{ fontFamily: mono, fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", color: LAYER_MODE_COLOR[layers.mode] }}>
+              {LAYER_MODE_LABEL[layers.mode]}
+            </span>
+          )}
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          {(["FULL", "STRATEGY_ONLY"] as const).map((m) => {
+            const active = layers?.mode === m;
+            const tone = LAYER_MODE_COLOR[m];
+            return (
+              <button
+                key={m}
+                disabled={busy || !layers}
+                onClick={() => setLayers({ mode: m })}
+                style={{
+                  padding: "9px 8px",
+                  borderRadius: 10,
+                  border: `1px solid ${active ? tone : C.line2}`,
+                  background: active ? tint(tone, 0.16) : "transparent",
+                  color: active ? tone : C.text3,
+                  fontWeight: 700,
+                  fontSize: 11.5,
+                  cursor: busy || !layers ? "default" : "pointer",
+                  fontFamily: "inherit",
+                }}
+              >
+                {m === "FULL" ? "ALL LAYERS ON" : "STRATEGY ONLY"}
+              </button>
+            );
+          })}
+        </div>
+
+        <p style={{ margin: "8px 0 0", fontSize: 11, color: layers?.mode === "FULL" ? C.muted : C.warn, lineHeight: 1.5 }}>
+          {layers?.mode === "FULL"
+            ? "Every filter applies: the model scores and can veto, and regime, hours, trend bias and range position all have to agree."
+            : "Filters are off — what reaches risk is the strategy's raw opinion. Sizing, stops, RR, the news blackout, the breakers and the caps still apply to every signal."}
+        </p>
+
+        <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 7 }}>
+          {(layers?.layers ?? []).map((l) => (
+            <div key={l.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <span style={{ fontSize: 11.5, color: l.enabled ? C.text3 : C.muted }} title={l.offMeans}>
+                {l.label}
+              </span>
+              <Toggle
+                on={l.enabled}
+                busy={busy}
+                tone={l.enabled ? C.up : C.warn}
+                title={l.enabled ? `Turn off — ${l.offMeans}` : `Turn ${l.label} back on`}
+                onClick={() => setLayers({ layer: l.key, enabled: !l.enabled })}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ borderTop: `1px solid ${C.line}`, paddingTop: 12 }}>
+        <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: ".06em", color: C.muted, marginBottom: 8 }}>
+          Always on — not switchable
+        </div>
+        <ul style={{ margin: 0, padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 5 }}>
+          {(layers?.mandatory ?? []).map((m) => (
+            <li key={m} style={{ fontSize: 11, color: C.muted2, display: "flex", gap: 7 }}>
+              <span style={{ color: C.up }}>✓</span>
+              <span>{m}</span>
+            </li>
+          ))}
+        </ul>
       </div>
 
       {overrides.length > 0 && (

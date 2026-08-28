@@ -95,6 +95,14 @@ class Settings(BaseSettings):
 
     # ---- Feature-flag env defaults ----
     raw_signal_feed: bool | None = Field(default=None)
+    #: Env defaults for the switchable gate layers (`config.flags.LAYERS`).
+    #: Field names match the flag keys. Unset means ON — a layer can only be
+    #: removed deliberately, never by a missing var.
+    ai_validation: bool | None = Field(default=None)
+    regime_gating: bool | None = Field(default=None)
+    killzone_gating: bool | None = Field(default=None)
+    bias_filter: bool | None = Field(default=None)
+    discount_filter: bool | None = Field(default=None)
 
     # ---- Backtests ----
     backtest_python: str | None = Field(default=None)

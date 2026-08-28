@@ -94,6 +94,26 @@ export interface FeatureFlagState {
   source: "db" | "env" | "default";
 }
 
+/** FULL = every filter on, STRATEGY_ONLY = none, MIXED = some. */
+export type LayerMode = "FULL" | "STRATEGY_ONLY" | "MIXED";
+
+export interface GateLayer {
+  key: string;
+  label: string;
+  enabled: boolean;
+  appliedBy: "gate" | "strategy";
+  /** Strategy param the worker overrides when this layer is off, if any. */
+  param: string | null;
+  offMeans: string;
+}
+
+export interface LayersResponse {
+  mode: LayerMode;
+  layers: GateLayer[];
+  /** Checks no switch can reach — risk engine, breakers, caps, freshness. */
+  mandatory: string[];
+}
+
 export interface Performance {
   totalTrades: number;
   winRate: number;

@@ -51,7 +51,6 @@ flowchart TD
 | `postgres` | PostgreSQL + TimescaleDB | Durable state |
 | `redis` | Redis | Cache, pub/sub, distributed locks |
 | `n8n` | n8n | Economic-calendar and headline ingestion |
-| `api` | Express + Prisma | **Legacy.** Rollback path only (`legacy` profile) |
 
 Shared TypeScript types live in `packages/shared`.
 
@@ -90,6 +89,11 @@ construction; backtesting. It may submit candidates, but it never creates a
 This is the part to understand before changing anything.
 
 ```
+data worker (services/data/strategy_runner.py) — guards BEFORE evaluation
+      ├─ series freshness (stale → skip)   with the raw_signal_feed flag ON both
+      ├─ regime gate (wrong regime → skip) post anyway, tagged preGatedBy=
+      │                                    stale_data | regime — the gate records
+      ▼                                    and refuses those without AI/risk
 strategy candidate
       │
       ▼
@@ -149,9 +153,10 @@ fresh database the same revision builds everything from the models.
 `alembic revision --autogenerate` must produce an empty diff, and
 `tests/test_schema_drift.py` fails the build if it doesn't.
 
-The Prisma SQL history stays in `apps/api/prisma/migrations` as the archive of
-how the schema got here, and `_prisma_migrations` is left untouched so a rollback
-to Express can still run `prisma migrate deploy`.
+The Prisma schema and its twelve SQL migrations are archived at
+`docs/archive/prisma/` as the record of how the schema came to be, and
+`_prisma_migrations` is left untouched in the database so a restored Express can
+still run `prisma migrate deploy`.
 
 ## Configuration layer
 
@@ -203,8 +208,9 @@ docker compose up -d               # postgres, redis, backend, web, worker, n8n
 open http://localhost:3100
 ```
 
-Profiles: `--profile live` adds the MT5 bridge; `--profile legacy` adds the
-Express API for a rollback. Never run both execution engines at once —
+`--profile live` adds the MT5 bridge. Only Next.js and Python application
+containers exist; the Express API was removed in plan 11 Phase 8 and is
+recoverable from the `archive/express-pre-plan11` tag. Operations and rollback:
 `docs/runbooks/11-cutover-and-rollback.md`.
 
 Configuration is environment-driven (`.env`, see `.env.example`). No variable

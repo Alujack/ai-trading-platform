@@ -225,6 +225,43 @@ class TestCandidateValidation:
         )
         assert res.status_code == 400
 
+    @staticmethod
+    def _pre_gated(**extra: object) -> dict[str, object]:
+        return {
+            "strategyName": "s",
+            "symbol": "XAUUSD",
+            "timeframe": "60min",
+            "direction": "LONG",
+            "entryPrice": 2400,
+            "stopLoss": 2395,
+            "takeProfit": 2410,
+            "confidence": 50,
+            "reasoning": "why",
+            **extra,
+        }
+
+    def test_a_stale_data_pre_gate_is_rejected_and_keeps_its_detail(self, client: TestClient):
+        """The raw feed's freshness bypass: visible, tagged, and never executable.
+
+        The worker posts a candidate off a frozen series so the operator can SEE it;
+        the gate must refuse it — no AI call, no risk call, no Signal — while keeping
+        the bar age in the reason so the row can warn about the prices.
+        """
+        detail = "newest bar 72h old (limit 120m)"
+        res = client.post(
+            "/api/signals/candidate",
+            json=self._pre_gated(preGatedBy="stale_data", preGatedDetail=detail),
+        )
+        assert res.status_code == 200
+        assert res.json() == {"status": "rejected", "reason": f"pre_gated_stale_data: {detail}"}
+
+    def test_a_pre_gate_detail_is_length_capped(self, client: TestClient):
+        res = client.post(
+            "/api/signals/candidate",
+            json=self._pre_gated(preGatedBy="stale_data", preGatedDetail="x" * 201),
+        )
+        assert res.status_code == 400
+
 
 class TestNewsAlert:
     def test_requires_title_and_scheduled_at(self, client: TestClient):

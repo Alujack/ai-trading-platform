@@ -12,6 +12,7 @@ before ownership changes hands.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Literal
@@ -29,6 +30,8 @@ from ...db.models import Candle, Indicator, NewsEvent, Signal, Trade
 from ...integrations.ai import client as ai
 from ...integrations.ai.schemas import ValidateSignalRequest
 from ...jobs.clock import naive_utcnow, start_of_utc_day
+from ..config.defaults import EffectiveRiskConfig
+from ..config.flags import AI_VALIDATION_FLAG, is_flag_enabled
 from ..config.resolve import resolve_risk_config
 from ..risk.engine import (
     NewsLite,
@@ -75,10 +78,14 @@ class SignalCandidate:
     #: AI score floor; defaults to 70.
     aiMinScore: float | None = None
     #: Set by the runner when an UPSTREAM layer already refused this candidate
-    #: and it is being posted for the raw feed only (today: "regime"). The gate
-    #: records it raw, then rejects it without running AI/risk — it can never
-    #: become a Signal, so a raw-feed candidate is never one step from execution.
+    #: and it is being posted for the raw feed only: "regime" (the strategy
+    #: doesn't trade this regime) or "stale_data" (the series is frozen, so these
+    #: prices are wrong). The gate records it raw, then rejects it without running
+    #: AI/risk — it can never become a Signal, so a raw-feed candidate is never
+    #: one step from execution.
     preGatedBy: str | None = None
+    #: Human detail for `preGatedBy`, folded into the recorded reason.
+    preGatedDetail: str | None = None
 
 
 @dataclass(slots=True)
@@ -149,7 +156,9 @@ async def gate_candidate(session: AsyncSession, candidate: SignalCandidate) -> G
     # Posted for visibility only — an upstream layer already refused it. Never
     # evaluate or persist it as a Signal.
     if candidate.preGatedBy:
-        result = GateResult(status="rejected", reason=f"pre_gated_{candidate.preGatedBy}")
+        detail = (candidate.preGatedDetail or "").strip()
+        reason = f"pre_gated_{candidate.preGatedBy}" + (f": {detail}" if detail else "")
+        result = GateResult(status="rejected", reason=reason)
         await raw_feed.stamp_raw_verdict(session, raw_id, result)
         return result
 
@@ -243,6 +252,43 @@ async def _run_gate(session: AsyncSession, candidate: SignalCandidate) -> GateRe
     # Resolve runtime config for this (strategy, symbol) — most-specific-wins.
     cfg = await resolve_risk_config(session, strategy_name, symbol)
 
+    min_score = (
+        candidate.aiMinScore
+        if candidate.aiMinScore is not None
+        else (cfg.aiMinScore if cfg.aiMinScore is not None else DEFAULT_AI_MIN_SCORE)
+    )
+
+    # The AI layer is switchable (flag `ai_validation`, default ON). Off means the
+    # strategy's own reasoning stands alone: no model is consulted, so there is no
+    # AI score to floor and no AI judgment to veto. The RISK engine below is NOT
+    # switchable — it runs on both paths, before any execution decision, per the
+    # CLAUDE.md rule.
+    ai_enabled = await is_flag_enabled(session, AI_VALIDATION_FLAG)
+
+    if not ai_enabled:
+        # Honest bookkeeping: the score recorded is the STRATEGY's own confidence,
+        # labelled as such, never a fabricated model verdict.
+        ai_score: float = candidate.confidence
+        ai_lines = [
+            "AI validation: DISABLED (flag `ai_validation` off) — no model reviewed",
+            "this signal; the strategy reasoning above is the whole rationale.",
+            f"Strategy confidence: {candidate.confidence} (not an AI score)",
+        ]
+        return await _post_ai_gate(
+            session,
+            candidate=candidate,
+            symbol=symbol,
+            timeframe=timeframe,
+            direction=direction,
+            strategy_name=strategy_name,
+            cfg=cfg,
+            upcoming_news=upcoming_news,
+            ai_score=ai_score,
+            ai_lines=ai_lines,
+            min_score=None,
+            shadow=shadow,
+        )
+
     ai_request = ValidateSignalRequest.model_validate(
         {
             "signal": {
@@ -298,11 +344,6 @@ async def _run_gate(session: AsyncSession, candidate: SignalCandidate) -> GateRe
         # upstream body — a vendor 400 can run to pages.
         return GateResult(status="skipped", reason=f"ai_service_unreachable: {str(exc)[:120]}")
 
-    min_score = (
-        candidate.aiMinScore
-        if candidate.aiMinScore is not None
-        else (cfg.aiMinScore if cfg.aiMinScore is not None else DEFAULT_AI_MIN_SCORE)
-    )
     if not isinstance(ai_result.score, (int, float)) or ai_result.score < min_score:
         return GateResult(
             status="rejected",
@@ -321,6 +362,49 @@ async def _run_gate(session: AsyncSession, candidate: SignalCandidate) -> GateRe
             score=ai_result.score,
         )
 
+    concerns_line = "; ".join(ai_result.concerns) if ai_result.concerns else "none"
+    return await _post_ai_gate(
+        session,
+        candidate=candidate,
+        symbol=symbol,
+        timeframe=timeframe,
+        direction=direction,
+        strategy_name=strategy_name,
+        cfg=cfg,
+        upcoming_news=upcoming_news,
+        ai_score=ai_result.score,
+        ai_lines=[
+            f"AI score: {ai_result.score}",
+            f"AI reasoning: {ai_result.reasoning}",
+            f"AI concerns: {concerns_line}",
+        ],
+        min_score=min_score,
+        shadow=shadow,
+    )
+
+
+async def _post_ai_gate(
+    session: AsyncSession,
+    *,
+    candidate: SignalCandidate,
+    symbol: str,
+    timeframe: str,
+    direction: str,
+    strategy_name: str,
+    cfg: EffectiveRiskConfig,
+    upcoming_news: Sequence[NewsEvent],
+    ai_score: float,
+    ai_lines: list[str],
+    min_score: float | None,
+    shadow: bool,
+) -> GateResult:
+    """Everything downstream of the (optional) AI layer: risk, journal, persist.
+
+    Split out so the AI-on and AI-off paths cannot drift — both reach the risk
+    engine through this one function, and `ai_lines` is the only thing that
+    differs between them. `min_score` is None when the AI layer was off, which is
+    what the shadow payload reports rather than implying a floor was applied.
+    """
     news_lite = [
         NewsLite(title=n.title, impact=n.impact.value, scheduledAt=n.scheduledAt)
         for n in upcoming_news
@@ -356,18 +440,15 @@ async def _run_gate(session: AsyncSession, candidate: SignalCandidate) -> GateRe
         return GateResult(
             status="rejected",
             reason=f"risk_rejected: {'; '.join(risk.reasons)}",
-            score=ai_result.score,
+            score=ai_score,
         )
 
-    concerns_line = "; ".join(ai_result.concerns) if ai_result.concerns else "none"
     reasoning = "\n".join(
         [
             f"Strategy {strategy_name} ({direction}):",
             f"  {candidate.reasoning}",
             "",
-            f"AI score: {ai_result.score}",
-            f"AI reasoning: {ai_result.reasoning}",
-            f"AI concerns: {concerns_line}",
+            *ai_lines,
             "",
             f"Risk approved. Position size {risk.positionSize:.8f} units.",
         ]
@@ -381,16 +462,16 @@ async def _run_gate(session: AsyncSession, candidate: SignalCandidate) -> GateRe
             strategy_name,
             symbol,
             timeframe,
-            ai_result.score,
+            ai_score,
             risk.positionSize,
         )
         return GateResult(
             status="rejected",
             reason="shadow_mode: decision computed, no write",
-            score=ai_result.score,
+            score=ai_score,
             shadow={
                 "wouldGenerate": True,
-                "score": ai_result.score,
+                "score": ai_score,
                 "positionSize": risk.positionSize,
                 "riskApproved": True,
                 "reasons": risk.reasons,
@@ -407,7 +488,7 @@ async def _run_gate(session: AsyncSession, candidate: SignalCandidate) -> GateRe
             entryPrice=dec(candidate.entryPrice, 8),
             stopLoss=dec(candidate.stopLoss, 8),
             takeProfit=dec(candidate.takeProfit, 8),
-            confidenceScore=round(ai_result.score),
+            confidenceScore=round(ai_score),
             aiReasoning=reasoning,
             strategyName=strategy_name,
             status=SignalStatus.PENDING,
@@ -439,4 +520,4 @@ async def _run_gate(session: AsyncSession, candidate: SignalCandidate) -> GateRe
     except Exception as exc:
         log.error("[gate] decide_execution failed: %s", exc)
 
-    return GateResult(status="generated", signalId=signal.id, score=ai_result.score)
+    return GateResult(status="generated", signalId=signal.id, score=ai_score)

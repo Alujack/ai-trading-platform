@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties, ReactNode } from "react";
-import { C } from "@/lib/theme";
+import { C, tint } from "@/lib/theme";
 
 export const panelStyle: CSSProperties = {
   background: "linear-gradient(160deg, rgba(255,255,255,0.035), rgba(255,255,255,0.012))",
@@ -105,5 +105,83 @@ export function StatusDot({ color, pulse }: { color: string; pulse?: boolean }) 
         animation: pulse ? "livedot 2s ease-in-out infinite" : undefined,
       }}
     />
+  );
+}
+
+/**
+ * Pill switch for a boolean runtime flag.
+ *
+ * `tone` carries the meaning: the caller picks the colour that says what "on"
+ * means for that particular flag — a visibility toggle being on is neutral, a
+ * protection layer being off is not.
+ */
+export function Toggle({
+  on,
+  busy,
+  tone,
+  title,
+  labels = ["ON", "OFF"],
+  onClick,
+}: {
+  on: boolean;
+  busy: boolean;
+  tone: string;
+  title: string;
+  labels?: [string, string];
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={busy}
+      aria-pressed={on}
+      title={title}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "3px 8px 3px 4px",
+        borderRadius: 20,
+        border: `1px solid ${on ? tint(tone, 0.45) : C.line2}`,
+        background: on ? tint(tone, 0.12) : "transparent",
+        cursor: busy ? "wait" : "pointer",
+        fontFamily: "inherit",
+        opacity: busy ? 0.6 : 1,
+      }}
+    >
+      <span
+        style={{
+          width: 26,
+          height: 14,
+          borderRadius: 20,
+          background: on ? tint(tone, 0.35) : "rgba(255,255,255,0.08)",
+          position: "relative",
+          transition: "background .15s",
+        }}
+      >
+        <span
+          style={{
+            position: "absolute",
+            top: 2,
+            left: on ? 14 : 2,
+            width: 10,
+            height: 10,
+            borderRadius: "50%",
+            background: on ? tone : C.muted,
+            transition: "left .15s",
+          }}
+        />
+      </span>
+      <span
+        style={{
+          fontSize: 9.5,
+          fontWeight: 700,
+          letterSpacing: ".05em",
+          color: on ? tone : C.muted2,
+        }}
+      >
+        {on ? labels[0] : labels[1]}
+      </span>
+    </button>
   );
 }

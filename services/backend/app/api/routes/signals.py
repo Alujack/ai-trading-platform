@@ -49,7 +49,12 @@ class SignalCandidateBody(BaseModel):
     aiMinScore: float | None = Field(default=None, ge=0, le=100)
     #: Raw-feed only: an upstream layer already refused this candidate, so the
     #: gate records it and rejects it without evaluating. Never becomes a Signal.
-    preGatedBy: Annotated[str, Field(pattern="^regime$")] | None = None
+    #: "regime" = the strategy doesn't trade this regime; "stale_data" = the
+    #: series is frozen, so these prices are wrong.
+    preGatedBy: Annotated[str, Field(pattern="^(regime|stale_data)$")] | None = None
+    #: Human detail for the tag above, shown on the raw row (e.g. how stale the
+    #: series is). Informational only.
+    preGatedDetail: str | None = Field(default=None, max_length=200)
 
 
 @router.post("/api/signals/candidate")

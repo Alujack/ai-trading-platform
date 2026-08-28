@@ -11,8 +11,9 @@ Two application frameworks (see docs/plans/11-nextjs-python-consolidation.md):
 - Redis — cache, pub/sub, distributed locks
 - Docker Compose — local dev environment
 
-apps/api (Express + Prisma) is LEGACY: the rollback path only, behind the
-`legacy` compose profile. Do not add features there.
+The Express API (apps/api) and the standalone AI service (services/ai) have been
+REMOVED. Recover the Express source if ever needed with:
+  git checkout archive/express-pre-plan11 -- apps/api
 
 ## Commands
 - `docker compose up -d` — start all services (web, backend, worker, n8n)
@@ -20,7 +21,6 @@ apps/api (Express + Prisma) is LEGACY: the rollback path only, behind the
 - `cd services/backend && .venv/bin/uvicorn app.main:app --reload` — start the backend
 - `cd services/backend && .venv/bin/python -m pytest tests/ -q` — backend tests
 - `cd services/backend && .venv/bin/alembic upgrade head` — migrate
-- `docker compose --profile legacy up` — add Express for a rollback
 
 ## Rules (NEVER break these)
 - Risk engine must be called before any trade execution

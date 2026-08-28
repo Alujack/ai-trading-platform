@@ -11,18 +11,20 @@ FastAPI** for every trading-domain concern (see
 apps/
   web/        Next.js 14 (App Router, TypeScript, Tailwind)
               + app/api/[...path] — the same-origin BFF proxy
-  api/        LEGACY Express + Prisma API — rollback path only, not started
-              by default (docker compose --profile legacy)
 services/
   backend/    Python + FastAPI — the trading domain: signal gate, risk engine,
               execution, AI, Telegram/broker integrations, realtime, jobs
   data/       Python workers — ingestion, indicators, strategies, backtests
-  ai/         Superseded: this code now lives in
-              services/backend/app/integrations/ai
   mt5bridge/  Python + FastAPI — Windows/MT5 terminal adapter
 packages/
-  shared/     Shared TypeScript types
+  shared/     Shared TypeScript types (used by apps/web)
 ```
+
+The Express API (`apps/api`) and the standalone AI service (`services/ai`) were
+removed once the FastAPI backend took over — see
+`docs/plans/11-nextjs-python-consolidation.md`. The Express implementation is
+recoverable from the `archive/express-pre-plan11` tag, and its Prisma schema and
+migration history are archived at `docs/archive/prisma/`.
 
 ### Request path
 
@@ -62,21 +64,26 @@ cd apps/web && PYTHON_API_URL=http://localhost:8000 npm run dev
 ## Compose profiles
 
 ```bash
-docker compose up                    # Next.js + Python (the current architecture)
+docker compose up                    # Next.js + Python (the whole platform)
 docker compose --profile live up     # ...plus the MT5 bridge (live execution)
-docker compose --profile legacy up   # ...plus Express, for a rollback
 ```
 
-Never run both execution engines at once — see
-`docs/runbooks/11-cutover-and-rollback.md`.
+Operations, schema changes and rollback: `docs/runbooks/11-cutover-and-rollback.md`.
 
 ## Tests
 
 ```bash
-cd services/backend && .venv/bin/python -m pytest tests/ -q   # backend
+cd services/backend && .venv/bin/python -m pytest tests/ -q   # backend (251 tests)
+cd services/backend && .venv/bin/ruff check app tests          # backend lint
 cd apps/web && npx tsc --noEmit                                # web typecheck
-npm run test --workspace=@ai-trading/api                       # legacy Express
-services/backend/.venv/bin/python services/backend/scripts/parity_check.py
+```
+
+The DB-backed tests (schema drift, full paper cycle) need Postgres:
+
+```bash
+POSTGRES_PORT=55432 sh services/backend/scripts/setup_test_db.sh
+export TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:55432/trading_test
+cd services/backend && .venv/bin/python -m pytest tests/ -q
 ```
 
 For the Python services, see each service's own README.

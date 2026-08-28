@@ -1,9 +1,13 @@
 """Data-freshness guard (alerting half) — port of `execution/dataFreshness.ts`.
 
-The Python strategy runner already refuses to evaluate a stale series
+The Python strategy runner refuses to TRADE a stale series
 (`services/data/strategy_runner.py`); this daily check tells the operator THAT it
 is refusing, via Telegram. The July 2026 ingestion outage ran unnoticed for weeks
 precisely because the pipeline went quiet without complaint.
+
+This alert matters more, not less, now that the raw-feed flag can surface
+stale-series candidates for manual eyes: those rows are tagged "STALE DATA" and
+can never execute, but the operator still needs to know the ingestion is broken.
 
 Best-effort throughout: an unconfigured Telegram or an empty `Candle` table must
 never raise into the scheduler.

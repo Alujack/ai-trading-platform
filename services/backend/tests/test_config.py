@@ -236,6 +236,147 @@ class TestFlagResolution:
         assert await flags.is_flag_enabled(None, flags.RAW_FEED_FLAG) is False
 
 
+class TestGateLayerFlags:
+    """The layer flags default ON, because each one gates the execution path.
+
+    Every other flag in the module ADDS a feature and is therefore safe to
+    resolve to False. These REMOVE a check, so neither a missing config nor a
+    resolution failure may drop one.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _clean_env(self, monkeypatch):
+        from app.domain.config import flags
+
+        for key in flags.LAYER_KEYS:
+            monkeypatch.delenv(key.upper(), raising=False)
+        get_settings.cache_clear()
+        yield
+        get_settings.cache_clear()
+
+    @pytest.mark.parametrize("key", ["ai_validation", "regime_gating", "killzone_gating", "bias_filter", "discount_filter"])
+    async def test_every_layer_defaults_on(self, monkeypatch, key):
+        from app.domain.config import flags
+
+        async def _rows(_session):
+            return []
+
+        monkeypatch.setattr(flags, "_flag_rows", _rows)
+        state = await flags.get_flag(None, key)
+        assert state.enabled is True
+        assert state.source == "env"
+
+    async def test_a_resolution_failure_leaves_every_layer_on(self, monkeypatch):
+        from app.domain.config import flags
+
+        async def _boom(_session):
+            raise RuntimeError("db down")
+
+        monkeypatch.setattr(flags, "_flag_rows", _boom)
+        for key in flags.LAYER_KEYS:
+            assert await flags.is_flag_enabled(None, key) is True
+
+    async def test_an_explicit_db_row_can_switch_a_layer_off(self, monkeypatch):
+        from app.domain.config import flags
+
+        async def _rows(_session):
+            return [{"key": flags.KILLZONE_GATING_FLAG, "enabled": False}]
+
+        monkeypatch.setattr(flags, "_flag_rows", _rows)
+        state = await flags.get_flag(None, flags.KILLZONE_GATING_FLAG)
+        assert state.enabled is False
+        assert state.source == "db"
+
+    async def test_env_can_switch_a_layer_off_without_a_row(self, monkeypatch):
+        from app.domain.config import flags
+
+        monkeypatch.setenv("BIAS_FILTER", "false")
+        get_settings.cache_clear()
+
+        async def _rows(_session):
+            return []
+
+        monkeypatch.setattr(flags, "_flag_rows", _rows)
+        state = await flags.get_flag(None, flags.BIAS_FILTER_FLAG)
+        assert state.enabled is False
+        assert state.source == "env"
+
+
+class TestLayerReport:
+    @staticmethod
+    def _stub_rows(monkeypatch, rows):
+        from app.domain.config import flags
+
+        async def _rows(_session):
+            return rows
+
+        monkeypatch.setattr(flags, "_flag_rows", _rows)
+
+    @pytest.fixture(autouse=True)
+    def _clean_env(self, monkeypatch):
+        from app.domain.config import flags
+
+        for key in flags.LAYER_KEYS:
+            monkeypatch.delenv(key.upper(), raising=False)
+        get_settings.cache_clear()
+        yield
+        get_settings.cache_clear()
+
+    async def test_all_on_reports_full(self, monkeypatch):
+        from app.domain.config import flags
+
+        self._stub_rows(monkeypatch, [])
+        report = await flags.layer_report(None)
+        assert report["mode"] == "FULL"
+        assert all(layer["enabled"] for layer in report["layers"])
+
+    async def test_all_off_reports_strategy_only(self, monkeypatch):
+        from app.domain.config import flags
+
+        self._stub_rows(monkeypatch, [{"key": k, "enabled": False} for k in flags.LAYER_KEYS])
+        report = await flags.layer_report(None)
+        assert report["mode"] == "STRATEGY_ONLY"
+        assert not any(layer["enabled"] for layer in report["layers"])
+
+    async def test_some_off_reports_mixed(self, monkeypatch):
+        from app.domain.config import flags
+
+        self._stub_rows(monkeypatch, [{"key": flags.AI_VALIDATION_FLAG, "enabled": False}])
+        report = await flags.layer_report(None)
+        assert report["mode"] == "MIXED"
+
+    async def test_a_resolve_failure_reports_every_layer_on(self, monkeypatch):
+        from app.domain.config import flags
+
+        async def _boom(_session):
+            raise RuntimeError("redis down")
+
+        monkeypatch.setattr(flags, "_flag_rows", _boom)
+        report = await flags.layer_report(None)
+        assert report["mode"] == "FULL"
+
+    async def test_the_mandatory_list_names_the_risk_engine(self, monkeypatch):
+        from app.domain.config import flags
+
+        self._stub_rows(monkeypatch, [])
+        report = await flags.layer_report(None)
+        mandatory = " ".join(report["mandatory"]).lower()
+        # The switchboard must never imply these are optional.
+        assert "risk engine" in mandatory
+        assert "breaker" in mandatory
+        assert "freshness" in mandatory
+
+    async def test_the_worker_can_map_every_strategy_layer_to_a_param(self, monkeypatch):
+        """A strategy-applied layer is only enforceable if it names its param."""
+        from app.domain.config import flags
+
+        self._stub_rows(monkeypatch, [])
+        report = await flags.layer_report(None)
+        for layer in report["layers"]:
+            if layer["appliedBy"] == "strategy" and layer["key"] != flags.REGIME_GATING_FLAG:
+                assert layer["param"], f"{layer['key']} has no param for the worker to override"
+
+
 class TestMaxOpenTradesDualDefault:
     """`PAPER_MAX_OPEN_TRADES` has two different fallbacks in the original.
 

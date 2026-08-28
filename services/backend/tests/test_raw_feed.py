@@ -59,6 +59,23 @@ def test_tags_the_runners_regime_pre_gate_marker():
     )
 
 
+def test_tags_the_runners_stale_data_pre_gate_marker():
+    assert classify_gate_outcome("rejected", "pre_gated_stale_data") == GateOutcomeClass(
+        RawVerdict.REJECTED, "stale_data"
+    )
+
+
+def test_stale_detail_rides_along_without_changing_the_tag():
+    # The runner appends HOW stale the series is so the operator can judge the
+    # prices; the tag must still classify cleanly.
+    assert classify_gate_outcome(
+        "rejected", "pre_gated_stale_data: newest bar 72h old (limit 120m)"
+    ) == GateOutcomeClass(RawVerdict.REJECTED, "stale_data")
+    assert classify_gate_outcome(
+        "rejected", "pre_gated_stale_data: no candles at all"
+    ) == GateOutcomeClass(RawVerdict.REJECTED, "stale_data")
+
+
 @pytest.mark.parametrize(
     ("reason", "blocked_by"),
     [

@@ -23,17 +23,24 @@ from strategy_runner import run_once as run_strategy_scan
 # News ingestion moved to the n8n automation layer (see docs/plans/06-…). The
 # worker is back to a single job: candles → indicators → strategies.
 
-SYMBOLS = list(SYMBOL_MAP.keys())  # XAUUSD, EURUSD, BTCUSD
+# Ingest universe: every known symbol (XAUUSD, EURUSD, BTCUSD) unless
+# INGEST_SYMBOLS narrows it — resolved in main(), see _ingest_symbols().
 
 # Each TF refreshes at a period that's a small multiple of the TF itself.
 # Total fetch rate: 60 req/hr (3 symbols * 5 TFs / their periods), so we stay
 # inside the per-minute limit but exceed the 800/day cap after ~13 hours of
-# continuous running on free tier.
+# continuous running on free tier. Cost is per symbol, so INGEST_SYMBOLS is the
+# lever that pays for a faster cadence below.
 TIMEFRAME_PERIOD_SECONDS: dict[str, int] = {
     # 60s 1min ingestion when the broker feed is on (free + real-time); the
     # conservative 5-min period otherwise keeps TwelveData under its daily cap.
     "1min": 60 if os.environ.get("CANDLE_SOURCE", "").strip().lower() == "mt5" else 5 * 60,
-    "5min": 15 * 60,
+    # 5min is the fastest TF this HTTP feed can actually serve to the strategy
+    # runner. The runner's freshness guard allows 600s (strategy_runner.py) and
+    # the worst-case age of the newest stored bar is period + 300s: 900s sits far
+    # outside that, 300s sits exactly ON it and would flap, 240s leaves ~60s of
+    # margin. Narrow INGEST_SYMBOLS before raising this.
+    "5min": int(os.environ.get("INGEST_PERIOD_5MIN_S", 15 * 60)),
     "15min": 30 * 60,
     "60min": 60 * 60,
     "daily": 60 * 60,
@@ -61,6 +68,30 @@ async def _notify_rt(client: httpx.AsyncClient, type_: str, symbol: str, timefra
         pass
 
 log = logging.getLogger("data.worker")
+
+
+def _ingest_symbols() -> list[str]:
+    """Which symbols to ingest, in SYMBOL_MAP order.
+
+    Defaults to every known symbol. Set INGEST_SYMBOLS (comma-separated) to
+    narrow it — request cost is per symbol, so a gold-only desk paying for a
+    faster 5min cadence buys it back by not fetching the EURUSD and BTCUSD it
+    does not trade. Mirrors `strategy_runner._symbols()`, fail-closed handling
+    included: a value that matches nothing ingests nothing rather than silently
+    widening back to everything.
+    """
+    known = list(SYMBOL_MAP.keys())
+    raw = os.environ.get("INGEST_SYMBOLS")
+    if not raw or not raw.strip():
+        return known
+    requested = [s.strip().upper() for s in raw.split(",") if s.strip()]
+    selected = [s for s in known if s in requested]
+    unknown = [s for s in requested if s not in known]
+    if unknown:
+        log.warning("ingest_symbols_unknown ignored=%s known=%s", unknown, known)
+    if not selected:
+        log.error("ingest_symbols_none_valid raw=%r ingesting_no_symbols", raw)
+    return selected
 
 
 def _configure_logging() -> None:
@@ -103,11 +134,16 @@ async def _fetch_and_store(
         await _notify_rt(client, "candle", symbol, timeframe)
 
 
-async def _scheduled_loop(timeframe: str, client: httpx.AsyncClient, period_seconds: int) -> None:
-    log.info("loop_start tf=%s period_s=%d", timeframe, period_seconds)
+async def _scheduled_loop(
+    timeframe: str,
+    client: httpx.AsyncClient,
+    period_seconds: int,
+    symbols: list[str],
+) -> None:
+    log.info("loop_start tf=%s period_s=%d symbols=%s", timeframe, period_seconds, symbols)
     while True:
         started = asyncio.get_event_loop().time()
-        for symbol in SYMBOLS:
+        for symbol in symbols:
             await _fetch_and_store(client, symbol, timeframe)
         elapsed = asyncio.get_event_loop().time() - started
         await asyncio.sleep(max(0.0, period_seconds - elapsed))
@@ -138,14 +174,16 @@ async def main() -> None:
     if "TWELVEDATA_API_KEY" not in os.environ:
         raise RuntimeError("TWELVEDATA_API_KEY is not set in environment")
 
+    symbols = _ingest_symbols()
+
     await init_pool()
-    log.info("worker_starting symbols=%s timeframes=%s", SYMBOLS, list(TIMEFRAME_PERIOD_SECONDS))
+    log.info("worker_starting symbols=%s timeframes=%s", symbols, TIMEFRAME_PERIOD_SECONDS)
 
     async with httpx.AsyncClient() as client:
         try:
             await asyncio.gather(
                 *(
-                    _scheduled_loop(tf, client, period)
+                    _scheduled_loop(tf, client, period, symbols)
                     for tf, period in TIMEFRAME_PERIOD_SECONDS.items()
                 ),
                 _periodic_loop("strategy_runner", run_strategy_scan, client, STRATEGY_PERIOD_SECONDS),

@@ -1,6 +1,6 @@
 # Next.js + Python Consolidation Plan
 
-**Status:** Implemented through Phase 7. Phase 8 staged behind a rollback profile; Phase 9 not started.  
+**Status:** Implemented through Phase 8. Phase 9 (n8n removal) not started.  
 **Date:** 2026-08-28 (planned), 2026-08-28 (implemented)  
 **Decision owner:** Platform owner  
 **Applies to:** `apps/web`, `apps/api`, `services/ai`, `services/data`, `services/mt5bridge`, Docker Compose, PostgreSQL, and Redis
@@ -17,28 +17,53 @@
 | 5 — Telegram and broker | Done | AES-GCM verified bidirectionally against Node; webhook auth |
 | 6 — Risk gate and execution | Done | full paper open→manage→close→journal cycle green |
 | 7 — Next.js BFF cutover | Done | `apps/web/app/api/[...path]/route.ts`, same-origin client |
-| 8 — Remove Express and Prisma | **Staged, not executed** | see below |
+| 8 — Remove Express and Prisma | Done | `archive/express-pre-plan11` tag; `docs/archive/prisma/` |
 | 9 — Optional n8n removal | Not started | — |
 
-### Why Phase 8 is staged rather than executed
+### Phase 8 — Express and Prisma removed
 
-The plan's own deployment sequence ends with "remove Express only after rollback
-is no longer needed", and the exit gate requires a completed paper-trading soak
-plus a rehearsed rollback. Neither can be compressed into the implementation
-window, so instead of deleting the Express code:
+Executed on the platform owner's instruction, ahead of the soak the exit gate
+originally called for. The plan's safeguard was applied first: an annotated
+archive tag, so nothing is unrecoverable.
 
-- `docker compose up` now starts **only** Next.js + Python. Express is behind the
-  `legacy` profile and starts nothing by default.
-- Its container has `ENABLE_PAPER_TRADING`/`WEEKLY_REVIEW`/`DAILY_BRIEFING=false`,
-  so even when started it owns no schedulers.
-- `services/ai` has been **deleted**; its code is
-  `services/backend/app/integrations/ai` and its schema tests were carried over
-  to `services/backend/tests/test_ai_schemas.py`.
+**Removed**
 
-Deleting `apps/api`, dropping the Node/Prisma dependencies and archiving the
-Prisma migration history are the remaining Phase-8 steps. They should be done
-after the soak in §4 of `docs/runbooks/11-cutover-and-rollback.md`, on an
-archival tag.
+| What | Notes |
+|---|---|
+| `apps/api/` (97 files, ~8,200 LOC) | routes, risk engine, execution, Telegram, brokers, Prisma schema + migrations |
+| `services/ai/` | already superseded; code lives in `services/backend/app/integrations/ai` |
+| `api` service + `legacy` profile in Compose | only Next.js and Python application containers remain |
+| Node deps: express, @prisma/client, prisma, cors, helmet, morgan, node-cron, ioredis, zod, tsx, vitest and the API-only `@types/*` | lockfile pruned from 470 → 440 packages |
+| `Dockerfile.node`'s Prisma generate + Python backtester install | the image now serves only `apps/web` |
+| `dev:api` / `parity` root scripts, `API_HOST`, `API_PORT` | dead once Express was gone |
+
+**Preserved**
+
+- `git tag archive/express-pre-plan11` — the full Express implementation.
+  Recover with `git checkout archive/express-pre-plan11 -- apps/api`.
+- `docs/archive/prisma/` — the schema and all twelve SQL migrations, with a README
+  explaining their relationship to the live database. Alembic's baseline adopts
+  rather than replays this history, so it is the only record of how the schema
+  came to be.
+- `_prisma_migrations` in the database, untouched, so a restored Express can still
+  run `prisma migrate deploy`.
+- `services/backend/scripts/parity_check.py` — still the right instrument if a
+  response shape is ever questioned; it now needs the archive restored to run.
+
+**Fixed on the way out** (things the removal would otherwise have broken)
+
+- `Dockerfile.node` referenced `apps/api/package.json` and ran `prisma generate`
+  against a deleted schema — the **web image build was broken** until it was
+  rewritten.
+- `services/data` defaulted `API_PUBLIC_URL` to `http://localhost:4000`, the dead
+  Express port. Now `:8000`, so a locally-run worker reaches the backend.
+- `start-trading.ps1` waited on an `ai` service at `:8000/health` and an `api`
+  service at `:4000/api/health`, and printed both in its summary. It now waits on
+  `backend` at `/health/ready`.
+
+**Rollback is no longer a compose flag.** `docs/runbooks/11-cutover-and-rollback.md`
+§5 was rewritten around three cases: revert a bad backend deploy, downgrade a bad
+migration, or restore Express from the archive tag as a last resort.
 
 ### Verified during implementation
 

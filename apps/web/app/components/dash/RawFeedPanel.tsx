@@ -6,7 +6,7 @@ import { API_BASE, fetcher } from "@/lib/api";
 import { pipsBetween, riskReward } from "@/lib/signals";
 import { C, mono, tint } from "@/lib/theme";
 import type { FeatureFlagState, RawSignal, RawSignalsResponse } from "@/lib/types";
-import { Panel } from "./ui";
+import { Panel, Toggle } from "./ui";
 
 /**
  * The raw ("layers off") strategy feed.
@@ -28,6 +28,7 @@ const LAYER: Record<string, { label: string; tone: string }> = {
   ai_judgment: { label: "AI VETO", tone: C.blue },
   ai_unreachable: { label: "AI DOWN", tone: C.muted },
   regime: { label: "REGIME", tone: "#a98bd8" },
+  stale_data: { label: "STALE DATA", tone: C.down },
   risk_news: { label: "NEWS", tone: C.warn },
   risk_rr: { label: "RR", tone: C.warn },
   risk_daily_loss: { label: "DAILY LOSS", tone: C.down },
@@ -136,7 +137,13 @@ export function RawFeedPanel({ limit = 50 }: { limit?: number }) {
               BLOCKED ONLY
             </button>
           )}
-          <Switch on={on} busy={busy} onClick={toggle} />
+          <Toggle
+            on={on}
+            busy={busy}
+            tone={C.warn}
+            title={on ? "Hide the raw strategy feed" : "Show the pure strategy signals (observe only)"}
+            onClick={toggle}
+          />
         </div>
       }
       noBody
@@ -180,8 +187,9 @@ export function RawFeedPanel({ limit = 50 }: { limit?: number }) {
 
       {!on && (
         <p style={{ padding: 16, margin: 0, fontSize: 12.5, color: C.muted }}>
-          Data freshness stays enforced even when this is on — a signal priced off frozen candles is
-          wrong, not unfiltered.
+          Turning this on drops every layer, data freshness included. Rows tagged{" "}
+          <strong style={{ color: C.down }}>STALE DATA</strong> are priced off frozen candles — check
+          the bar age on the row before you act on one.
         </p>
       )}
 
@@ -227,57 +235,6 @@ export function RawFeedPanel({ limit = 50 }: { limit?: number }) {
         </>
       )}
     </Panel>
-  );
-}
-
-function Switch({ on, busy, onClick }: { on: boolean; busy: boolean; onClick: () => void }) {
-  const tone = on ? C.warn : C.muted2;
-  return (
-    <button
-      onClick={onClick}
-      disabled={busy}
-      aria-pressed={on}
-      title={on ? "Hide the raw strategy feed" : "Show the pure strategy signals (observe only)"}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "3px 8px 3px 4px",
-        borderRadius: 20,
-        border: `1px solid ${on ? tint(C.warn, 0.45) : C.line2}`,
-        background: on ? tint(C.warn, 0.12) : "transparent",
-        cursor: busy ? "wait" : "pointer",
-        fontFamily: "inherit",
-        opacity: busy ? 0.6 : 1,
-      }}
-    >
-      <span
-        style={{
-          width: 26,
-          height: 14,
-          borderRadius: 20,
-          background: on ? tint(C.warn, 0.35) : "rgba(255,255,255,0.08)",
-          position: "relative",
-          transition: "background .15s",
-        }}
-      >
-        <span
-          style={{
-            position: "absolute",
-            top: 2,
-            left: on ? 14 : 2,
-            width: 10,
-            height: 10,
-            borderRadius: "50%",
-            background: on ? C.warn : C.muted,
-            transition: "left .15s",
-          }}
-        />
-      </span>
-      <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: ".05em", color: tone }}>
-        {on ? "ON" : "OFF"}
-      </span>
-    </button>
   );
 }
 
@@ -404,6 +361,8 @@ function Row({ r, open, onToggle }: { r: RawSignal; open: boolean; onToggle: () 
           ) : (
             <Block label={`Stopped by ${badge.label.toLowerCase()}`}>
               {r.blockedReason || "—"}
+              {r.blockedBy === "stale_data" &&
+                "\n\nThese prices came off a frozen series — the levels above may be nowhere near the live market. Re-check the current price before acting."}
               {"\n\n"}Automation did NOT take this trade. Trading it by hand is your call — position
               size it yourself; the risk engine never sized this one.
             </Block>
