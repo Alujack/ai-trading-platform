@@ -39,3 +39,8 @@ def as_aware_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def iso_stamp(now: datetime | None = None) -> str:
+    """`YYYY-MM-DD HH:MM` in UTC — the stamp Telegram messages are edited with."""
+    return (now or utcnow()).astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M")
