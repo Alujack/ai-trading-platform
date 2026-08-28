@@ -82,7 +82,8 @@ Set these on the **n8n container** (add to the `n8n` service `environment:` in
 | `ALPHA_VANTAGE_API_KEY` | Workflow B → Alpha Vantage node | Free tier is **25 req/day** — see caveat below. Omit and the AV branch no-ops (RSS still runs). |
 | `NEWS_SUMMARY_URL` | Workflow B → AI node | Defaults to `http://host.docker.internal:8000/analyze/news-summary`. Point at the AI service. |
 
-The AI summary call hits our `services/ai` endpoint, so it **respects the
+The AI summary call hits the backend's `/analyze/news-summary` compatibility
+route (`services/backend`, formerly `services/ai`), so it **respects the
 Mock / Claude / Gemini toggle** in the dashboard — no model key lives in n8n.
 
 ## 5. Verify

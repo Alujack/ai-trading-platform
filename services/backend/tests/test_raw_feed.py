@@ -133,3 +133,31 @@ def test_raw_feed_is_unreachable_from_execution():
         if "raw_feed" in path.read_text("utf-8") or "RawSignal" in path.read_text("utf-8")
     ]
     assert offenders == []
+
+
+def test_every_tag_the_classifier_can_return_is_documented():
+    """`BLOCKED_BY_TAGS` is the documented vocabulary for `RawSignal.blockedBy`.
+
+    The dashboard renders a badge per tag, so a typo or a new tag added to
+    `classify_gate_outcome` without updating the list would surface as an unknown
+    badge. Extracting the literals the classifier actually returns keeps the two
+    in step.
+    """
+    import ast
+    import inspect
+
+    from app.domain.signals import raw_feed as module
+
+    # getsource returns the function at module indentation, so it parses as-is;
+    # cleandoc would strip the body's indentation and break it.
+    tree = ast.parse(inspect.getsource(module.classify_gate_outcome))
+    returned = {
+        node.value.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Return)
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+    }
+    assert returned, "no string returns found — did classify_gate_outcome change shape?"
+    undocumented = returned - set(module.BLOCKED_BY_TAGS)
+    assert undocumented == set(), f"tags returned but not documented: {sorted(undocumented)}"

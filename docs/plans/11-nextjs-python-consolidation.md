@@ -31,8 +31,9 @@ window, so instead of deleting the Express code:
   `legacy` profile and starts nothing by default.
 - Its container has `ENABLE_PAPER_TRADING`/`WEEKLY_REVIEW`/`DAILY_BRIEFING=false`,
   so even when started it owns no schedulers.
-- `services/ai` is superseded by `services/backend/app/integrations/ai` and is no
-  longer in the Compose graph.
+- `services/ai` has been **deleted**; its code is
+  `services/backend/app/integrations/ai` and its schema tests were carried over
+  to `services/backend/tests/test_ai_schemas.py`.
 
 Deleting `apps/api`, dropping the Node/Prisma dependencies and archiving the
 Prisma migration history are the remaining Phase-8 steps. They should be done
@@ -59,6 +60,43 @@ archival tag.
   RR rejection.
 - **Shadow mode is read-only:** an early implementation dual-wrote `RiskLog`,
   violating invariant 3. Fixed, and pinned by `tests/test_shadow_mode.py`.
+
+### Dead-code cleanup (post-migration)
+
+`services/ai` was deleted outright — nothing referenced it, and its `/analyze/*`
+surface is served by the backend's compatibility routes. One gotcha handled on the
+way out: `services/ai/.env` held the live `GEMINI_API_KEY`, which the consolidated
+backend does not read, so the desk had silently fallen back to the `mock`
+provider. Those vars were migrated into the root `.env` before deletion, and the
+provider now resolves to `gemini` again.
+
+The following was ported faithfully and then removed, because it had **no caller
+in either runtime** — it was already dead in the Express code:
+
+| Removed | Why |
+|---|---|
+| `domain/execution/trailing_stops.py` + tests | `trailingStopManager.ts` had no importer; the scalp manager owns live exits |
+| Gold risk block in `risk/engine.py` (`GOLD_*`, `GoldRiskContext`, `validate_gold_risk`, `get_gold_adjusted_risk`, `ValidateTradeInput.goldContext`) + tests | Nothing ever constructed a `GoldRiskContext`, so the gold concurrency/direction/session limits never enforced. Concurrency is capped by `maxOpenTrades` in the decider |
+| `paper_trading.sweep_pending_signals` + `SweepSummary` | Superseded by `policy.reconcile_pending_signals`; `sweepPendingSignals` was unreferenced in Express too |
+| `scheduler.run_paper_trading_once` / `run_scalp_management_once` / `run_weekly_review_once` / `send_news_brief_once` | Exported "for a manual route" that never existed. `run_daily_briefing_once` is kept — `main.py` calls it |
+| `config.flags.is_raw_feed_enabled` | Duplicated `raw_feed.raw_feed_enabled` |
+| `integrations/ai/llm.py` | Back-compat shim re-exporting `providers.analyze` for imports that no longer exist |
+| `scalp_manager.reset_scalp_state` | Test seam with no test using it |
+
+**Worth knowing:** the gold-specific limits (max 3 concurrent gold positions, max
+2 same-direction, a 3-consecutive-loss session pause, a 1% session risk budget)
+have never been enforced on this platform. They read like active protection in the
+old code but were unreachable. If the gold multi-strategy desk needs them, they
+have to be wired into the gate deliberately — the removed code is in git history
+and still present in `apps/api/src/risk/riskEngine.ts`.
+
+`BLOCKED_BY_TAGS` was dead documentation; instead of deleting the knowledge it is
+now asserted against the tags `classify_gate_outcome` can actually return, so a
+new or mistyped tag fails the build.
+
+`apps/api` and the Prisma runtime are deliberately **kept** — they are the
+documented rollback path until the soak in
+`docs/runbooks/11-cutover-and-rollback.md` §4 completes.
 
 ### Two defects the parity harness caught
 

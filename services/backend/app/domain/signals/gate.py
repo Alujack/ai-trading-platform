@@ -292,9 +292,11 @@ async def _run_gate(session: AsyncSession, candidate: SignalCandidate) -> GateRe
     try:
         ai_result = await ai.validate_signal(ai_request)
     except Exception as exc:
-        # Same reason prefix the Express gate produced, so `classify_gate_outcome`
-        # still tags this `ai_unreachable`.
-        return GateResult(status="skipped", reason=f"ai_service_unreachable: {exc}")
+        # AI outage fails CLOSED: no Signal is written, so nothing can execute.
+        # The prefix is what `classify_gate_outcome` tags as `ai_unreachable`, and
+        # the provider message is truncated the way the Express gate truncated its
+        # upstream body — a vendor 400 can run to pages.
+        return GateResult(status="skipped", reason=f"ai_service_unreachable: {str(exc)[:120]}")
 
     min_score = (
         candidate.aiMinScore

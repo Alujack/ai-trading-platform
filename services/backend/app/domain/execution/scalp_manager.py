@@ -35,11 +35,6 @@ log = logging.getLogger("backend.scalp")
 _ticket_states: dict[str, TicketState] = {}
 
 
-def reset_scalp_state() -> None:
-    """Test-only: reset the in-memory state between cases."""
-    _ticket_states.clear()
-
-
 @dataclass(slots=True)
 class ScalpManageSummary:
     managed: int

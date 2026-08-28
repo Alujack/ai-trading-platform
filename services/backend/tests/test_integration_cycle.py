@@ -62,8 +62,12 @@ def _async_url(url: str) -> str:
 
 
 @pytest.fixture
-async def db(monkeypatch: pytest.MonkeyPatch):
-    """A clean session against the test database, with settings pointed at it."""
+async def db(monkeypatch: pytest.MonkeyPatch, mock_ai_provider):
+    """A clean session against the test database, with settings pointed at it.
+
+    Depends on `mock_ai_provider` so the cycle exercises the gate rather than
+    whichever LLM key happens to be in the developer's `.env`.
+    """
     monkeypatch.setenv("DATABASE_URL", TEST_URL)
     monkeypatch.setenv("PAPER_ACCOUNT_BALANCE", "10000")
     monkeypatch.setenv("PAPER_PEAK_BALANCE", "10000")

@@ -13,7 +13,6 @@ import pytest
 from app.core.settings import get_settings
 from app.domain.execution.broker import reset_broker
 
-
 # The AI settings module reads provider keys at import time via
 # pydantic-settings. No test makes a real API call, but importing the module
 # chain touches them. (Carried over from services/ai/tests/conftest.py.)
@@ -42,3 +41,26 @@ def encryption_key(monkeypatch: pytest.MonkeyPatch) -> str:
     key = "0" * 62 + "ff"
     monkeypatch.setenv("ENCRYPTION_KEY", key)
     return key
+
+@pytest.fixture
+def mock_ai_provider(monkeypatch: pytest.MonkeyPatch):
+    """Pin the AI layer to the built-in `mock` provider.
+
+    Any test that drives the gate end to end must not depend on a real LLM: with
+    a live provider configured the gate correctly fails CLOSED on a bad key, and
+    the test would be asserting the developer's API credentials rather than the
+    gate's logic. `mock` is deterministic and makes no network call.
+    """
+    from app.integrations.ai import providers
+    from app.integrations.ai.settings import get_settings as get_ai_settings
+
+    for var in ("GEMINI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("DEFAULT_PROVIDER", "mock")
+
+    get_ai_settings.cache_clear()
+    monkeypatch.setattr(providers, "_active", "mock")
+    monkeypatch.setattr(providers, "_cache", {})
+    monkeypatch.setattr(providers, "_overrides", {})
+    yield
+    get_ai_settings.cache_clear()

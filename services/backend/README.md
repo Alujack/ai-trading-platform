@@ -32,7 +32,7 @@ app/
     config/                  defaults, resolver (SYMBOL►STRATEGY►GLOBAL), store, flags
     risk/engine.py           THE risk engine — called before any execution
     signals/                 gate.py (AI + risk) and raw_feed.py (observe-only)
-    execution/               policy, paper, live, scalp, trailing, backtests, agents
+    execution/               policy, paper, live, scalp, backtests, agents
     performance/metrics.py   Win rate, expectancy, profit factor, drawdown
     market_context.py        Candles + indicators + news → AI briefing (cached)
   integrations/

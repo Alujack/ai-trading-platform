@@ -1,5 +1,20 @@
 # AI Trading Platform — System Architecture & Code Review
 
+> **⚠️ HISTORICAL SNAPSHOT — superseded on 2026-08-28.**
+>
+> This document describes the architecture *before* the Next.js + Python
+> consolidation (`docs/plans/11-nextjs-python-consolidation.md`). It still shows
+> an Express API at `:4000` as the main backend and a separate AI service at
+> `services/ai`, neither of which is how the platform runs now:
+>
+> - The trading domain moved to **`services/backend`** (FastAPI).
+> - **`services/ai` has been deleted**; its code is `services/backend/app/integrations/ai`.
+> - **`apps/api`** is the legacy rollback path only, behind the `legacy` compose profile.
+> - The browser calls **same-origin `/api/*`** on Next.js, which proxies to the backend.
+>
+> For the current architecture see **`docs/ARCHITECTURE.md`**. The code-review
+> findings below are kept as a record of what was true at the time.
+
 ## System Architecture Diagram
 
 ```mermaid
