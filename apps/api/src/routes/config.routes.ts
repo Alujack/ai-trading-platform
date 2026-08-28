@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { RISK_BOUNDS } from "../config/defaults";
+import { RAW_FEED_FLAG, getFlag, setFlag } from "../config/flags";
 import { getExecutionMap, resolveRiskConfig } from "../config/resolve";
 import {
   armSystem,
@@ -37,6 +38,7 @@ const putExecSchema = z.object({
 });
 
 const reasonSchema = z.object({ reason: z.string().max(200).optional() });
+const rawFeedSchema = z.object({ enabled: z.boolean() });
 const riskQuerySchema = z.object({
   strategy: z.string().max(40).optional(),
   symbol: z.string().max(40).optional(),
@@ -126,6 +128,33 @@ router.post(
     await armSystem(reason ? `${ACTOR}:${reason}` : ACTOR);
     console.warn(`[config] system ARMED (CONFIRM) reason="${reason}"`);
     res.json({ ok: true, ...(await getExecutionMap()) });
+  }),
+);
+
+// ---------------------------------------------------------------------------
+// Raw strategy feed ("layers off" view)
+// ---------------------------------------------------------------------------
+// This toggle is VISIBILITY ONLY. On, the gate records every strategy candidate
+// untouched and stamps which layer stopped it, so the operator can trade the pure
+// strategy signal by hand. It does not disable, relax or reorder a single check
+// on the execution path: automation still needs AI + risk approval before a
+// Signal exists, and the decider's caps/breakers still stand behind that.
+
+router.get(
+  "/config/raw-feed",
+  asyncHandler(async (_req, res) => {
+    res.json(await getFlag(RAW_FEED_FLAG));
+  }),
+);
+
+router.put(
+  "/config/raw-feed",
+  validate(rawFeedSchema, "body"),
+  asyncHandler(async (req, res) => {
+    const { enabled } = req.body as { enabled: boolean };
+    const state = await setFlag(ACTOR, RAW_FEED_FLAG, enabled);
+    console.warn(`[config] raw signal feed ${enabled ? "ENABLED" : "disabled"} (observe-only)`);
+    res.json({ ok: true, ...state });
   }),
 );
 

@@ -4,6 +4,7 @@ import { decideExecution } from "../execution/executionPolicy";
 import { prisma } from "../lib/prisma";
 import { publishEvent } from "../lib/realtime";
 import { validateTrade, type Impact, type NewsLite } from "../risk/riskEngine";
+import { recordRawCandidate, stampRawVerdict } from "./rawFeed";
 
 const AI_SERVICE_URL = process.env.AI_SERVICE_URL ?? "http://localhost:8000";
 const DEFAULT_AI_MIN_SCORE = 70;
@@ -36,6 +37,11 @@ export interface SignalCandidate {
   cooldownMs?: number;
   /** AI score floor; defaults to 70. */
   aiMinScore?: number;
+  /** Set by the runner when an UPSTREAM layer already refused this candidate and
+   *  it is being posted for the raw feed only (today: "regime"). The gate records
+   *  it raw, then rejects it without running AI/risk — it can never become a
+   *  Signal, so a raw-feed candidate is never one step away from execution. */
+  preGatedBy?: "regime";
 }
 
 export type GateStatus = "skipped" | "rejected" | "generated";
@@ -82,11 +88,41 @@ async function computeTodayLoss(): Promise<number> {
 }
 
 /**
+ * The public entry point every strategy hits. It wraps the real gate with the
+ * raw ("layers off") feed: the untouched candidate is recorded first, the full
+ * layer stack then runs exactly as before, and the verdict is stamped back onto
+ * the raw row so the dashboard can show WHICH layer stopped it.
+ *
+ * The raw feed is observe-only and cannot change a verdict: `runGate` below is
+ * untouched by the flag, so AI validation and the risk engine still gate every
+ * Signal that execution can ever act on (CLAUDE.md: risk engine before any
+ * trade execution). With the flag off this is a straight pass-through.
+ */
+export async function gateCandidate(candidate: SignalCandidate): Promise<GateResult> {
+  const rawId = await recordRawCandidate(candidate);
+
+  // Posted for visibility only — an upstream layer already refused it. Never
+  // evaluate or persist it as a Signal.
+  if (candidate.preGatedBy) {
+    const result: GateResult = {
+      status: "rejected",
+      reason: `pre_gated_${candidate.preGatedBy}`,
+    };
+    await stampRawVerdict(rawId, result);
+    return result;
+  }
+
+  const result = await runGate(candidate);
+  await stampRawVerdict(rawId, result);
+  return result;
+}
+
+/**
  * Validate a candidate through AI + risk, and persist a PENDING Signal tagged
  * with its strategy when both gates pass. This is the one gate for all
  * strategies; the per-strategy detection logic lives in the strategy modules.
  */
-export async function gateCandidate(candidate: SignalCandidate): Promise<GateResult> {
+async function runGate(candidate: SignalCandidate): Promise<GateResult> {
   const { strategyName, symbol, timeframe, direction } = candidate;
 
   // Idempotency: a candidate carrying a clientId is the same trade if we've

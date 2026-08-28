@@ -9,21 +9,11 @@ export default function RiskPage() {
   return (
     <>
       <KpiStrip />
-      <section
-        style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}
-      >
+      <section className="page-grid-two">
         <ExecutionControlPanel />
         <RiskEnginePanel />
       </section>
-      <section
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1.4fr 1fr",
-          gap: 16,
-          alignItems: "start",
-          marginTop: 16,
-        }}
-      >
+      <section className="page-grid-feature">
         <RiskControlPanel />
         <NewsPanel />
       </section>

@@ -18,8 +18,24 @@ const jetbrains = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "AI Trading Platform",
-  description: "AI-powered trading intelligence",
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
+  title: {
+    default: "Cambotix Trade Intelligence",
+    template: "%s · Cambotix Trade Intelligence",
+  },
+  description: "AI-assisted market context, disciplined risk controls, and execution clarity in one focused trading workspace.",
+  openGraph: {
+    type: "website",
+    title: "Cambotix Trade Intelligence",
+    description: "AI-assisted market context, risk controls, and execution clarity.",
+    images: [{ url: "/og.png", width: 1731, height: 909, alt: "Cambotix Trade Intelligence" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Cambotix Trade Intelligence",
+    description: "AI-assisted market context, risk controls, and execution clarity.",
+    images: ["/og.png"],
+  },
 };
 
 export default function RootLayout({
@@ -29,7 +45,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={`${hanken.variable} ${jetbrains.variable}`}>
-      <body className="antialiased" style={{ background: "#0a0b0e", color: "#e8eaed", fontFamily: "var(--font-hanken), system-ui, sans-serif" }}>
+      <body className="antialiased" style={{ background: "#080a0d", color: "#f1f3f5", fontFamily: "var(--font-hanken), system-ui, sans-serif" }}>
         <Shell>{children}</Shell>
       </body>
     </html>

@@ -5,6 +5,12 @@ Each tick it: reads the enabled rows from the `Strategy` table, builds a
 each `SignalCandidate` to the API gate (`POST /api/signals/candidate`). The gate
 runs AI validation + the risk engine and persists tagged PENDING signals — this
 runner never writes to the Signal table directly.
+
+Two guards live HERE rather than in the gate: the freshness check below (never
+evaluate a stale series) and the regime gate. The freshness check is absolute —
+a signal priced off frozen bars is wrong, not "unfiltered". The regime gate is
+bypassable for VISIBILITY only, via the raw-feed flag (see `_raw_feed_enabled`):
+gated candidates are still posted, but tagged so they can never be promoted.
 """
 from __future__ import annotations
 
@@ -59,6 +65,35 @@ def _utcnow_naive() -> datetime:
 def _gate_url() -> str:
     base = os.environ.get("API_PUBLIC_URL", "http://localhost:4000").rstrip("/")
     return os.environ.get("STRATEGY_GATE_URL") or f"{base}/api/signals/candidate"
+
+
+def _raw_feed_url() -> str:
+    base = os.environ.get("API_PUBLIC_URL", "http://localhost:4000").rstrip("/")
+    return f"{base}/api/config/raw-feed"
+
+
+def _raw_feed_env_default() -> bool:
+    return os.environ.get("RAW_SIGNAL_FEED", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+async def _raw_feed_enabled(client: httpx.AsyncClient) -> bool:
+    """Is the raw ("layers off") feed on? Asked once per scan.
+
+    When on, a candidate the REGIME gate would have dropped is still evaluated and
+    posted — tagged `preGatedBy="regime"` — so the operator can see the pure
+    strategy signal for manual trading. The API records it and refuses it without
+    running AI/risk, so it can never become a Signal or a position.
+
+    A probe failure falls back to RAW_SIGNAL_FEED (default off): the raw feed can
+    only ever be turned off by an outage, never on.
+    """
+    try:
+        resp = await client.get(_raw_feed_url(), timeout=5.0)
+        resp.raise_for_status()
+        return bool(resp.json().get("enabled", False))
+    except Exception as exc:  # noqa: BLE001 — visibility feature; never break a scan
+        log.debug("raw_feed_probe_failed err=%s falling_back_to_env", exc)
+        return _raw_feed_env_default()
 
 
 def _timeframes() -> list[str]:
@@ -203,6 +238,7 @@ async def run_once(client: httpx.AsyncClient) -> int:
     timeframes = _timeframes()
     symbols = _symbols()
     gating = gating_enabled()
+    raw_feed = await _raw_feed_enabled(client)
     # Regime depends only on (symbol, timeframe), so classify each once per scan
     # and reuse across every strategy.
     regime_cache: dict[tuple[str, str], RegimeReading] = {}
@@ -276,6 +312,7 @@ async def run_once(client: httpx.AsyncClient) -> int:
                 window = await _load_window(pool, symbol, timeframe, bars_needed)
                 if not window.bars:
                     continue
+                regime_gated = False
                 if gating:
                     reading = await _regime(symbol, timeframe)
                     # UNKNOWN fails open (don't halt trading on thin data); a known
@@ -283,18 +320,27 @@ async def run_once(client: httpx.AsyncClient) -> int:
                     if reading.regime != UNKNOWN and reading.regime not in strategy.regimes:
                         log.info(
                             "candidate_gated strategy=%s symbol=%s tf=%s regime=%s "
-                            "allowed=%s reason=%s",
+                            "allowed=%s reason=%s raw_feed=%s",
                             name,
                             symbol,
                             timeframe,
                             reading.regime,
                             sorted(strategy.regimes),
                             reading.reason,
+                            raw_feed,
                         )
-                        continue
+                        if not raw_feed:
+                            continue
+                        # Raw feed on: evaluate anyway so the operator SEES the pure
+                        # strategy signal, tagged so the gate records it and rejects
+                        # it without AI/risk. It can never become a Signal.
+                        regime_gated = True
                 candidates = strategy.evaluate(window)
                 for cand in candidates:
-                    outcome = await _post_candidate(client, gate_url, cand.to_payload())
+                    payload = cand.to_payload()
+                    if regime_gated:
+                        payload["preGatedBy"] = "regime"
+                    outcome = await _post_candidate(client, gate_url, payload)
                     if outcome.startswith("generated"):
                         generated += 1
                     log.info(

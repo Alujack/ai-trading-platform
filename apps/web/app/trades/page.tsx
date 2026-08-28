@@ -8,7 +8,7 @@ export default function TradesPage() {
   return (
     <>
       <KpiStrip />
-      <section style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, alignItems: "start" }}>
+      <section className="page-grid-two">
         <PositionsPanel />
         <RecentSignalsPanel limit={20} title="Signal History" />
       </section>

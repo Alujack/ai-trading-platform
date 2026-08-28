@@ -22,19 +22,17 @@ export function Shell({ children }: { children: React.ReactNode }) {
       value={{ symbol, timeframe, setSymbol, setTimeframe, openSettings, rtStatus }}
     >
       <div
+        className="app-shell"
         style={
           {
             "--accent": accent,
-            display: "flex",
-            minHeight: "100vh",
             background: C.bg,
-            color: C.text,
           } as React.CSSProperties
         }
       >
         <LeftNavRail accent={accent} onAccent={setAccent} />
 
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+        <div className="app-column">
           <TopBar
             symbol={symbol}
             timeframe={timeframe}
@@ -42,17 +40,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
             onAiClick={openSettings}
             rtStatus={rtStatus}
           />
-          <main
-            style={{
-              padding: "18px 24px 40px",
-              display: "flex",
-              flexDirection: "column",
-              gap: 16,
-              width: "100%",
-              maxWidth: 1720,
-              margin: "0 auto",
-            }}
-          >
+          <main className="dashboard-main">
             {children}
           </main>
         </div>

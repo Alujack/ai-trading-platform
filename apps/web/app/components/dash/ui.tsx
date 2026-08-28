@@ -4,9 +4,11 @@ import type { CSSProperties, ReactNode } from "react";
 import { C } from "@/lib/theme";
 
 export const panelStyle: CSSProperties = {
-  background: C.panel,
+  background: "linear-gradient(160deg, rgba(255,255,255,0.035), rgba(255,255,255,0.012))",
   border: `1px solid ${C.line2}`,
-  borderRadius: 14,
+  borderRadius: 15,
+  boxShadow: "0 18px 44px rgba(0,0,0,.15)",
+  overflow: "hidden",
 };
 
 export function Panel({
@@ -29,6 +31,7 @@ export function Panel({
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
+          minHeight: 44,
           padding: "12px 16px",
           borderBottom: `1px solid ${C.line}`,
         }}
@@ -36,7 +39,7 @@ export function Panel({
         <h2
           style={{
             margin: 0,
-            fontSize: 11,
+            fontSize: 10.5,
             fontWeight: 700,
             textTransform: "uppercase",
             letterSpacing: ".08em",

@@ -23,6 +23,15 @@ const ITEMS: { href: string; label: string; Icon: LucideIcon }[] = [
   { href: "/backtests", label: "Backtest", Icon: FlaskConical },
 ];
 
+const MOBILE_ITEMS = [
+  ITEMS[0],
+  ITEMS[1],
+  ITEMS[2],
+  ITEMS[3],
+  ITEMS[4],
+  { href: "/settings", label: "Settings", Icon: Settings },
+];
+
 export function LeftNavRail({
   accent,
   onAccent,
@@ -33,112 +42,63 @@ export function LeftNavRail({
   const pathname = usePathname();
 
   return (
-    <nav
-      style={{
-        width: 66,
-        flex: "none",
-        borderRight: `1px solid ${C.line}`,
-        background: C.rail,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        padding: "14px 0",
-        gap: 4,
-        position: "sticky",
-        top: 0,
-        height: "100vh",
-      }}
-    >
-      <div
-        style={{
-          width: 38,
-          height: 38,
-          borderRadius: 10,
-          background: "var(--accent, #f0b429)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontWeight: 800,
-          fontSize: 15,
-          color: "#1a1306",
-          marginBottom: 10,
-          boxShadow: "0 4px 14px rgba(240,180,41,0.25)",
-        }}
-      >
-        Au
-      </div>
+    <>
+      <nav className="nav-rail" aria-label="Primary navigation">
+        <Link className="nav-brand" href="/" aria-label="Cambotix Trade Intelligence home">
+          <span className="brand-mark" aria-hidden="true">CX</span>
+          <span className="nav-brand-copy" style={{ lineHeight: 1.05 }}>
+            <span style={{ display: "block", fontSize: 12, fontWeight: 800, letterSpacing: ".12em" }}>CAMBOTIX</span>
+            <span style={{ display: "block", marginTop: 4, color: C.muted2, fontSize: 8.5, fontWeight: 700, letterSpacing: ".13em" }}>TRADE INTELLIGENCE</span>
+          </span>
+        </Link>
 
-      {ITEMS.map((it) => {
-        const active = pathname === it.href;
-        return (
-          <Link key={it.href} href={it.href} style={{ textDecoration: "none" }}>
-            <RailItem label={it.label} Icon={it.Icon} active={active} />
-          </Link>
-        );
-      })}
+        <div className="nav-section-label">Workspace</div>
+        <div className="nav-list">
+          {ITEMS.map((it) => (
+            <RailItem key={it.href} {...it} active={pathname === it.href} />
+          ))}
+        </div>
 
-      <div style={{ flex: 1 }} />
+        <div className="nav-footer">
+          <div className="accent-picker">
+            <span className="accent-picker-label" style={{ color: C.muted, fontSize: 10 }}>Accent</span>
+            <span className="accent-swatches">
+              {ACCENTS.map((a) => (
+                <button
+                  className="accent-swatch"
+                  key={a}
+                  onClick={() => onAccent(a)}
+                  title={`${ACCENT_LABELS[a]} accent`}
+                  aria-label={`Use ${ACCENT_LABELS[a]} accent`}
+                  aria-pressed={accent === a}
+                  style={{ background: a, border: accent === a ? "2px solid #fff" : "2px solid transparent" }}
+                />
+              ))}
+            </span>
+          </div>
+          <RailItem href="/settings" label="Settings" Icon={Settings} active={pathname === "/settings"} />
+        </div>
+      </nav>
 
-      {/* accent picker */}
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, marginBottom: 8 }}>
-        {ACCENTS.map((a) => (
-          <button
-            key={a}
-            onClick={() => onAccent(a)}
-            title={`${ACCENT_LABELS[a]} accent`}
-            aria-label={`${ACCENT_LABELS[a]} accent`}
-            style={{
-              width: 14,
-              height: 14,
-              borderRadius: "50%",
-              background: a,
-              border: accent === a ? "2px solid #fff" : "2px solid transparent",
-              cursor: "pointer",
-              padding: 0,
-            }}
-          />
-        ))}
-      </div>
-
-      <Link href="/settings" title="Settings — AI, Telegram & broker" style={{ textDecoration: "none" }}>
-        <RailItem label="Settings" Icon={Settings} active={pathname === "/settings"} />
-      </Link>
-    </nav>
+      <nav className="mobile-dock" aria-label="Mobile navigation">
+        {MOBILE_ITEMS.map((it) => {
+          const active = pathname === it.href;
+          return (
+            <Link key={it.href} href={it.href} data-active={active} title={it.label} aria-label={it.label}>
+              <it.Icon size={19} strokeWidth={active ? 2.2 : 1.8} />
+            </Link>
+          );
+        })}
+      </nav>
+    </>
   );
 }
 
-function RailItem({ label, Icon, active }: { label: string; Icon: LucideIcon; active?: boolean }) {
+function RailItem({ href, label, Icon, active }: { href: string; label: string; Icon: LucideIcon; active?: boolean }) {
   return (
-    <div
-      style={{
-        position: "relative",
-        width: 50,
-        height: 48,
-        borderRadius: 11,
-        background: active ? "rgba(255,255,255,0.05)" : "transparent",
-        color: active ? "var(--accent, #f0b429)" : C.muted,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        gap: 3,
-      }}
-    >
-      {active && (
-        <span
-          style={{
-            position: "absolute",
-            left: -8,
-            top: 11,
-            width: 3,
-            height: 26,
-            borderRadius: 3,
-            background: "var(--accent, #f0b429)",
-          }}
-        />
-      )}
-      <Icon size={19} strokeWidth={1.8} />
-      <span style={{ fontSize: 8.5, letterSpacing: ".02em" }}>{label}</span>
-    </div>
+    <Link className="nav-item" href={href} data-active={!!active} aria-current={active ? "page" : undefined} title={label}>
+      <Icon size={17} strokeWidth={active ? 2.15 : 1.8} aria-hidden="true" />
+      <span className="nav-item-label">{label}</span>
+    </Link>
   );
 }

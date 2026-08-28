@@ -49,6 +49,51 @@ export interface SignalsResponse {
   pagination: { limit: number; offset: number; total: number };
 }
 
+// ---------------------------------------------------------------------------
+// Raw ("layers off") strategy feed
+// ---------------------------------------------------------------------------
+// A RawSignal is the strategy's proposal exactly as it was emitted, recorded
+// before any protection layer ran, with the layer verdict attached instead of
+// applied. Observe-only: these rows have no path to a trade.
+
+export type RawVerdict = "PENDING" | "GENERATED" | "REJECTED" | "SKIPPED";
+
+export interface RawSignal {
+  id: string;
+  symbol: string;
+  timeframe: string;
+  direction: SignalDirection;
+  entryPrice: string;
+  stopLoss: string;
+  takeProfit: string;
+  /** The strategy's own confidence, never an AI score. */
+  confidence: number;
+  reasoning: string;
+  strategyName: string;
+  verdict: RawVerdict;
+  /** Machine tag of the first layer that stopped it; null when it passed. */
+  blockedBy: string | null;
+  blockedReason: string | null;
+  /** Set only when it cleared every layer and became a real Signal. */
+  signalId: string | null;
+  dedupeKey: string;
+  seenCount: number;
+  lastSeenAt: string;
+  createdAt: string;
+}
+
+export interface RawSignalsResponse {
+  data: RawSignal[];
+  feedEnabled: boolean;
+  pagination: { limit: number; offset: number; total: number };
+}
+
+export interface FeatureFlagState {
+  key: string;
+  enabled: boolean;
+  source: "db" | "env" | "default";
+}
+
 export interface Performance {
   totalTrades: number;
   winRate: number;

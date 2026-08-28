@@ -1,6 +1,7 @@
 "use client";
 
 import { ChevronDown, TrendingDown, TrendingUp } from "lucide-react";
+import { usePathname } from "next/navigation";
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
 import { C, mono, tint } from "@/lib/theme";
@@ -19,6 +20,16 @@ const META: Record<Symbol, { badge: string; name: string; grad: string; fg: stri
 };
 
 const AI_LABEL: Record<string, string> = { mock: "Mock", anthropic: "Claude", gemini: "Gemini" };
+
+const PAGE_TITLES: Record<string, { title: string; eyebrow: string }> = {
+  "/": { title: "Command center", eyebrow: "Overview" },
+  "/signals": { title: "Signal desk", eyebrow: "Intelligence" },
+  "/trades": { title: "Trade book", eyebrow: "Portfolio" },
+  "/journal": { title: "Trading journal", eyebrow: "Review" },
+  "/risk": { title: "Risk control", eyebrow: "Guardrails" },
+  "/backtests": { title: "Strategy lab", eyebrow: "Validation" },
+  "/settings": { title: "Settings", eyebrow: "Workspace" },
+};
 
 function fmtPrice(n: number, symbol: Symbol): string {
   const dp = symbol === "EURUSD" ? 4 : symbol === "BTCUSD" ? 0 : 2;
@@ -47,6 +58,7 @@ export function TopBar({
   onAiClick: () => void;
   rtStatus?: "connecting" | "live" | "offline";
 }) {
+  const pathname = usePathname();
   const { data: candles } = useSWR<Candle[]>(
     `/api/candles?symbol=${symbol}&timeframe=${timeframe}&limit=2`,
     fetcher,
@@ -64,27 +76,21 @@ export function TopBar({
   const up = change >= 0;
 
   const m = META[symbol];
+  const page = PAGE_TITLES[pathname] ?? PAGE_TITLES["/"];
   const aiActive = ai?.active ?? "mock";
   const aiLive = aiActive !== "mock";
   const equity = pos?.account.equity;
 
   return (
-    <header
-      style={{
-        height: 60,
-        flex: "none",
-        borderBottom: `1px solid ${C.line}`,
-        background: "rgba(10,11,14,0.85)",
-        backdropFilter: "blur(10px)",
-        display: "flex",
-        alignItems: "center",
-        gap: 18,
-        padding: "0 24px",
-        position: "sticky",
-        top: 0,
-        zIndex: 20,
-      }}
-    >
+    <header className="topbar">
+      <div className="topbar-title" style={{ lineHeight: 1.1 }}>
+        <div style={{ marginBottom: 4, color: C.muted2, fontSize: 8.5, fontWeight: 700, letterSpacing: ".13em", textTransform: "uppercase" }}>
+          {page.eyebrow}
+        </div>
+        <div style={{ color: C.text2, fontSize: 13, fontWeight: 650 }}>{page.title}</div>
+      </div>
+
+      <div className="topbar-market">
       {/* symbol switcher */}
       <div
         style={{
@@ -94,8 +100,8 @@ export function TopBar({
           gap: 10,
           padding: "6px 12px 6px 10px",
           border: `1px solid ${tint("#ffffff", 0.09)}`,
-          borderRadius: 10,
-          background: C.fill,
+          borderRadius: 11,
+          background: "rgba(255,255,255,0.03)",
         }}
       >
         <div
@@ -158,11 +164,12 @@ export function TopBar({
           {change.toFixed(symbol === "EURUSD" ? 4 : 2)}
         </span>
       </div>
+      </div>
 
-      <div style={{ flex: 1 }} />
+      <div className="topbar-spacer" />
 
       {/* realtime status + market session */}
-      <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: C.text3 }} title={`Realtime stream: ${rtStatus}`}>
+      <div className="topbar-status" style={{ alignItems: "center", gap: 7, fontSize: 11, color: C.text3 }} title={`Realtime stream: ${rtStatus}`}>
         <span
           style={{
             width: 7,
@@ -180,6 +187,7 @@ export function TopBar({
 
       {/* AI status → opens settings */}
       <button
+        className="topbar-ai"
         onClick={onAiClick}
         title="Manage AI providers"
         style={{
@@ -203,6 +211,7 @@ export function TopBar({
 
       {/* account */}
       <div
+        className="topbar-account"
         style={{
           display: "flex",
           alignItems: "center",

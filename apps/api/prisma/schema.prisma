@@ -43,6 +43,14 @@ enum ApprovalStatus {
   EXPIRED
 }
 
+// Verdict the layer stack returned for a raw strategy proposal.
+enum RawVerdict {
+  PENDING // recorded, gate still running
+  GENERATED // cleared every layer -> became a real Signal
+  REJECTED // a layer refused it (AI score/judgment, risk, regime)
+  SKIPPED // never evaluated (duplicate, cooldown, thin data, AI down)
+}
+
 model Candle {
   id        String   @id @default(cuid())
   symbol    String
@@ -313,4 +321,63 @@ model Approval {
 
   @@index([status])
   @@index([expiresAt])
+}
+
+// The PURE strategy feed: every candidate a strategy emits, recorded BEFORE any
+// protection layer runs, then stamped with what the layers said about it. This is
+// the "layers off" view for manual trading — the operator sees the untouched
+// strategy proposal plus a badge for whichever layer would have stopped it.
+//
+// SAFETY: this table is intentionally an island. It has NO relation to Trade or
+// Approval, and nothing in execution/ ever reads it, so a raw row can never
+// become a position — the CLAUDE.md rule "risk engine before any trade
+// execution" still holds for every path that can move money. Only rows that
+// cleared the whole stack carry a `signalId`, and it is the Signal (not this
+// row) that execution acts on.
+//
+// Written only while the `raw_signal_feed` FeatureFlag is on; off = zero rows,
+// zero overhead.
+model RawSignal {
+  id           String     @id @default(cuid())
+  symbol       String
+  timeframe    String
+  direction    Direction
+  entryPrice   Decimal    @db.Decimal(18, 8)
+  stopLoss     Decimal    @db.Decimal(18, 8)
+  takeProfit   Decimal    @db.Decimal(18, 8)
+  // The strategy's OWN confidence, pre-AI. Never overwritten by an AI score.
+  confidence   Int
+  // The strategy's own rationale, verbatim.
+  reasoning    String
+  strategyName String
+  verdict      RawVerdict @default(PENDING)
+  // Machine tag of the FIRST layer that stopped it: "ai_score" | "ai_judgment" |
+  // "ai_unreachable" | "risk_news" | "risk_rr" | "risk_daily_loss" |
+  // "risk_drawdown" | "risk" | "regime" | "cooldown" | "duplicate" |
+  // "insufficient_candles". Null when it passed everything.
+  blockedBy     String?
+  // Full human-readable reason from the gate/risk engine.
+  blockedReason String?
+  // Set only when the candidate cleared every layer and a Signal was persisted.
+  signalId      String?
+  // Collapses re-emissions of the same proposal (clientId, or a per-day hash of
+  // the levels) so a 1-min scan loop can't flood the feed.
+  dedupeKey  String   @unique
+  seenCount  Int      @default(1)
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([strategyName])
+  @@index([symbol, timeframe])
+  @@index([verdict])
+}
+
+// Generic on/off switches the dashboard can flip at runtime. Today: the
+// `raw_signal_feed` toggle. Absent row = the env default (see config/flags.ts).
+// Every write lands in ConfigAudit like any other config change.
+model FeatureFlag {
+  key       String   @id
+  enabled   Boolean  @default(false)
+  updatedAt DateTime @updatedAt
 }

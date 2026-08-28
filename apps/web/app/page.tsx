@@ -15,6 +15,20 @@ export default function HomePage() {
 
   return (
     <>
+      <section className="dashboard-intro">
+        <div className="dashboard-intro-copy">
+          <div className="dashboard-eyebrow">AI-assisted decision workspace</div>
+          <h1 className="dashboard-title">Trade the context, not the noise.</h1>
+          <p className="dashboard-subtitle">
+            Market structure, active setups, and risk controls in one focused view for {symbol} on the {timeframe} chart.
+          </p>
+        </div>
+        <div className="intro-status">
+          <span className="intro-status-dot" aria-hidden="true" />
+          Risk guardrails active
+        </div>
+      </section>
+
       <KpiStrip />
 
       <section className="grid grid-cols-1 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_372px]">
