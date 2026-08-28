@@ -63,12 +63,12 @@ def _utcnow_naive() -> datetime:
 
 
 def _gate_url() -> str:
-    base = os.environ.get("API_PUBLIC_URL", "http://localhost:4000").rstrip("/")
+    base = os.environ.get("API_PUBLIC_URL", "http://localhost:8000").rstrip("/")
     return os.environ.get("STRATEGY_GATE_URL") or f"{base}/api/signals/candidate"
 
 
 def _raw_feed_url() -> str:
-    base = os.environ.get("API_PUBLIC_URL", "http://localhost:4000").rstrip("/")
+    base = os.environ.get("API_PUBLIC_URL", "http://localhost:8000").rstrip("/")
     return f"{base}/api/config/raw-feed"
 
 

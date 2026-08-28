@@ -1,29 +1,19 @@
 # syntax=docker/dockerfile:1
-# Shared dev image for the Node workspaces (apps/api + apps/web).
-# Installs the whole monorepo's deps once; each service picks its own CMD in
-# docker-compose. Source is bind-mounted at runtime for hot reload, so this
-# image only needs the dependency tree + a generated Prisma client baked in.
+# Dev image for the Next.js workspace (apps/web).
+#
+# Since plan 11 Phase 8 removed the Express API, this image serves one service.
+# It no longer installs the Python backtester deps (the Python backend spawns
+# that itself) and no longer generates a Prisma client (Alembic + SQLAlchemy own
+# persistence now). Source is bind-mounted at runtime for hot reload, so the
+# image only needs the dependency tree.
 FROM node:20-bookworm-slim
 
-# Prisma's query engine needs openssl at runtime. Python + the data-service deps
-# are needed so the API can spawn services/data/backtester.py for UI backtests.
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        openssl ca-certificates python3 python3-pip python3-venv \
-    && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /app
-
-# Install the Python backtester's deps (system-wide; this is a dev image).
-# Done before the npm layer so it caches independently of JS dependency churn.
-COPY services/data/requirements.txt services/data/requirements.txt
-RUN pip3 install --no-cache-dir --break-system-packages -r services/data/requirements.txt
 
 # Copy only manifests first for better layer caching. Workspace symlinks resolve
 # against these (the package.json files), so npm install can wire the monorepo
 # before the source is present.
 COPY package.json package-lock.json ./
-COPY apps/api/package.json apps/api/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/shared/package.json packages/shared/package.json
 
@@ -31,7 +21,3 @@ RUN npm install
 
 # Now the source (bind mounts override the live-edited subtrees at runtime).
 COPY . .
-
-# Generate the Prisma client into node_modules (no DB connection needed here;
-# `migrate deploy` against the running Postgres happens in the api service CMD).
-RUN npx prisma generate --schema=apps/api/prisma/schema.prisma

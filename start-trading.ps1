@@ -123,7 +123,7 @@ if ($SetupLive) {
     }
     Set-DotEnvKey $EnvFile "BROKER" "exness"
     Set-DotEnvKey $EnvFile "EXNESS_ENV" "demo"
-    # api runs in docker; the native bridge is on the host.
+    # the backend runs in docker; the native bridge is on the host.
     Set-DotEnvKey $EnvFile "MT5_BRIDGE_URL" "http://host.docker.internal:8800"
     Set-DotEnvKey $EnvFile "MT5_BRIDGE_TOKEN" $token
     Write-Ok "BROKER=exness, EXNESS_ENV=demo, MT5_BRIDGE_URL, MT5_BRIDGE_TOKEN written"
@@ -161,7 +161,7 @@ if ($isLive) {
     if (-not $cfg["MT5_BRIDGE_TOKEN"]) { Write-Fail "BROKER=exness but MT5_BRIDGE_TOKEN missing in .env (run -SetupLive)"; exit 1 }
     $bridgeCfg = Read-DotEnv $BridgeEnv
     if ($bridgeCfg["MT5_BRIDGE_TOKEN"] -and ($bridgeCfg["MT5_BRIDGE_TOKEN"] -ne $cfg["MT5_BRIDGE_TOKEN"])) {
-        Write-Fail "MT5_BRIDGE_TOKEN in .env does not match services\mt5bridge\.env - api calls will 401 (run -SetupLive)"
+        Write-Fail "MT5_BRIDGE_TOKEN in .env does not match services\mt5bridge\.env - broker calls will 401 (run -SetupLive)"
         exit 1
     }
 } else {
@@ -200,7 +200,7 @@ if ($isLive) {
 # ---------------------------------------------------------------------------
 # Docker stack
 # ---------------------------------------------------------------------------
-Write-Step "Starting docker services (postgres, redis, ai, api, web, worker, n8n)"
+Write-Step "Starting docker services (postgres, redis, backend, web, worker, n8n)"
 docker compose up -d
 if ($LASTEXITCODE -ne 0) { Write-Fail "docker compose up failed"; exit 1 }
 
@@ -219,14 +219,14 @@ $redisPing = docker exec trading-redis redis-cli ping 2>$null
 if ("$redisPing".Trim() -eq "PONG") { Write-Ok "redis ready" } else { Write-Warn2 "redis did not PONG yet" }
 
 Write-Step "Waiting for application services"
-$aiPort = "8000"; if ($cfg["AI_SERVICE_PORT"]) { $aiPort = $cfg["AI_SERVICE_PORT"] }
-$apiPort = "4000"; if ($cfg["API_PORT"]) { $apiPort = $cfg["API_PORT"] }
+# One Python backend owns the trading domain (signal gate, risk, execution, AI);
+# the separate Express API and AI service were removed in plan 11 Phase 8.
+$backendPort = "8000"; if ($cfg["BACKEND_PORT"]) { $backendPort = $cfg["BACKEND_PORT"] }
 $webPort = "3100"; if ($cfg["WEB_PORT"]) { $webPort = $cfg["WEB_PORT"] }
 
-[void](Wait-Http "AI service" "http://localhost:$aiPort/health" 120 @{})
-# api runs prisma migrate deploy before listening - give it time.
-$apiOk = Wait-Http "API" "http://localhost:$apiPort/api/health" 180 @{}
-if (-not $apiOk) { Write-Warn2 "check logs:  docker logs trading-api --tail 50" }
+# The backend runs `alembic upgrade head` before listening - give it time.
+$backendOk = Wait-Http "Backend" "http://localhost:$backendPort/health/ready" 180 @{}
+if (-not $backendOk) { Write-Warn2 "check logs:  docker logs trading-backend --tail 50" }
 if (-not (Wait-Http "Web dashboard" "http://localhost:$webPort" 180 @{})) {
     Write-Warn2 "next dev can be slow on first compile - check:  docker logs trading-web --tail 50"
 }
@@ -278,14 +278,14 @@ if ($isLive) {
 }
 Write-Host "=============================================================" -ForegroundColor Green
 Write-Host "  Dashboard   http://localhost:$webPort"
-Write-Host "  API         http://localhost:$apiPort/api/health"
-Write-Host "  AI service  http://localhost:$aiPort/health"
+Write-Host "  Backend     http://localhost:$backendPort/health/ready"
 if ($isLive) {
     Write-Host "  MT5 bridge  http://localhost:8800/health  (X-Bridge-Token)"
 }
 Write-Host "  n8n         http://localhost:5678"
 Write-Host ""
-Write-Host "  Logs:  docker compose logs -f api worker" -ForegroundColor DarkGray
+Write-Host "  The dashboard calls the backend through its own same-origin /api/*." -ForegroundColor DarkGray
+Write-Host "  Logs:  docker compose logs -f backend worker" -ForegroundColor DarkGray
 Write-Host "  Stop:  .\start-trading.ps1 -Stop" -ForegroundColor DarkGray
 Write-Host ""
 exit 0

@@ -45,7 +45,7 @@ TIMEFRAME_PERIOD_SECONDS: dict[str, int] = {
 STRATEGY_PERIOD_SECONDS = int(os.environ.get("STRATEGY_PERIOD_SECONDS", 15 * 60))
 
 # Where to ping the API so it can push realtime updates to the dashboard (SSE).
-_API_BASE = os.environ.get("API_PUBLIC_URL", "http://localhost:4000").rstrip("/")
+_API_BASE = os.environ.get("API_PUBLIC_URL", "http://localhost:8000").rstrip("/")
 RT_NOTIFY_URL = f"{_API_BASE}/api/internal/rt-notify"
 
 

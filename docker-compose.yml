@@ -45,7 +45,10 @@ services:
   #
   #   docker compose up                    # web + backend + worker + n8n
   #   docker compose --profile live up      # ...plus the MT5 bridge
-  #   docker compose --profile legacy up    # ...plus Express, for a rollback
+  #
+  # Only Next.js and Python application containers remain — the Express API was
+  # removed in plan 11 Phase 8. To recover it:
+  #   git checkout archive/express-pre-plan11 -- apps/api
 
   # Trading-domain backend (FastAPI). Owns Postgres, Redis, the signal gate, the
   # authoritative risk engine, paper/live execution, AI orchestration, Telegram +
@@ -111,70 +114,6 @@ services:
       redis:
         condition: service_healthy
 
-  # LEGACY Express + Prisma API — the rollback path, NOT started by default.
-  #
-  # docs/plans/11 keeps this service available until the FastAPI backend has
-  # completed its paper-trading soak, because the documented rollback is "point
-  # the worker gate back to Express". It is behind the `legacy` profile so
-  # `docker compose up` runs the two-framework architecture:
-  #
-  #     docker compose up                      # Next.js + Python only
-  #     docker compose --profile legacy up     # adds Express for a rollback
-  #
-  # NEVER run both execution engines at once: if you start this, first set the
-  # global execution mode to OFF and stop the backend's schedulers
-  # (BACKEND_JOB_OWNER=false). See docs/runbooks/11-cutover-and-rollback.md.
-  api:
-    profiles: ["legacy"]
-    build:
-      context: .
-      dockerfile: Dockerfile.node
-    image: ai-trading-node:dev
-    container_name: trading-api
-    restart: unless-stopped
-    command: >-
-      sh -c "npx prisma migrate deploy --schema=apps/api/prisma/schema.prisma &&
-             npx prisma generate --schema=apps/api/prisma/schema.prisma &&
-             npm run dev --workspace=@ai-trading/api"
-    env_file: .env
-    environment:
-      - NODE_ENV=development
-      - API_HOST=0.0.0.0
-      - API_PORT=4000
-      - API_PUBLIC_URL=http://localhost:4000
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-trading}
-      - REDIS_URL=redis://redis:6379
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      # The AI service is in-process in the Python backend now; this points the
-      # legacy container at the backend's /analyze/* compatibility routes.
-      - AI_SERVICE_URL=http://backend:8000
-      # Off by default: the FastAPI backend owns execution. Only flip these in a
-      # deliberate rollback, with the backend's jobs stopped first.
-      - ENABLE_PAPER_TRADING=false
-      - ENABLE_WEEKLY_REVIEW=false
-      - ENABLE_DAILY_BRIEFING=false
-      - BROKER=${BROKER:-paper}
-      - EXNESS_ENV=${EXNESS_ENV:-demo}
-      # In-network default: reach the dockerized bridge by service name. Override
-      # MT5_BRIDGE_URL in .env (e.g. http://host.docker.internal:8800) only if you
-      # run the bridge natively on the host instead of the `live` profile.
-      - MT5_BRIDGE_URL=${MT5_BRIDGE_URL:-http://mt5bridge:8800}
-      - MT5_BRIDGE_TOKEN=${MT5_BRIDGE_TOKEN:-}
-      - 'BROKER_SYMBOL_MAP={"EURUSD":"EURUSDm","XAUUSD":"XAUUSDm","BTCUSD":"BTCUSDm"}'
-    ports:
-      - "${API_PORT:-4000}:4000"
-    volumes:
-      - ./apps/api/src:/app/apps/api/src
-      - ./apps/api/prisma:/app/apps/api/prisma
-      - ./apps/api/scripts:/app/apps/api/scripts
-      - ./packages/shared/src:/app/packages/shared/src
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-
   # Next.js dashboard + the thin same-origin BFF. Internal port 3000, published
   # on the host at :3100.
   #
@@ -216,8 +155,8 @@ services:
         condition: service_started
 
   # Python worker: candles → indicators → strategy scan → POST candidates to the
-  # gate. Points at the FastAPI backend; STRATEGY_GATE_URL is the single switch
-  # the cutover/rollback procedure flips (docs/runbooks/11-cutover-and-rollback.md).
+  # gate. STRATEGY_GATE_URL points at the FastAPI backend, which is now the only
+  # gate there is.
   worker:
     build:
       context: ./services/data
@@ -229,9 +168,9 @@ services:
       - REDIS_URL=redis://redis:6379
       # Base URL for the worker's API calls (rt-notify, raw-feed probe).
       - API_PUBLIC_URL=${WORKER_API_BASE:-http://backend:8000}
-      # The signal gate. Rollback = point this back at http://api:4000.
+      # The one signal gate.
       - STRATEGY_GATE_URL=${STRATEGY_GATE_URL:-http://backend:8000/api/signals/candidate}
-      # /analyze/* now lives on the backend (compatibility routes).
+      # /analyze/* lives on the backend (compatibility routes for n8n).
       - AI_SERVICE_URL=http://backend:8000
     depends_on:
       postgres:

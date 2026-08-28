@@ -5,6 +5,13 @@ while the implementation language changed. Fields that legitimately vary per cal
 (wall-clock stamps, cache flags, live child-process output) are normalized away;
 everything else must match after JSON round-tripping.
 
+NOTE: Express was removed in Phase 8. To run this now, restore it from the
+archive tag first (see docs/runbooks/11-cutover-and-rollback.md §5c):
+
+    git checkout archive/express-pre-plan11 -- apps/api
+    git checkout archive/express-pre-plan11 -- package.json package-lock.json
+    npm install && npx prisma generate --schema=apps/api/prisma/schema.prisma
+
 Usage:
     # 1. bring up Postgres + Redis
     docker compose up -d postgres redis

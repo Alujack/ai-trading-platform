@@ -1,239 +1,209 @@
-# Runbook — execution cutover and rollback (plan 11)
+# Runbook — backend operations and rollback (plan 11)
 
-**Applies to:** the handover of trade execution between the legacy Express API
-(`apps/api`) and the Python backend (`services/backend`).
+**Status:** the cutover is complete. Express and Prisma were removed in Phase 8;
+`services/backend` (FastAPI) is the only runtime that gates and executes trades.
 
-**The one rule:** never run both execution engines at once. Everything below
-exists to make that impossible rather than merely unlikely.
-
----
-
-## 0. Where things stand
-
-`docker compose up` starts the two-framework architecture: Next.js (`web`) +
-Python (`backend`, `worker`) + Postgres + Redis + n8n. Express is **not started**
-— it lives behind the `legacy` profile purely as the rollback path:
-
-```bash
-docker compose up                     # current architecture
-docker compose --profile legacy up    # ...plus Express, for a rollback
-docker compose --profile live up      # ...plus the MT5 bridge
-```
-
-The switch that decides which runtime gates trades is a single env var read by
-the strategy runner:
-
-| Variable | Cutover value | Rollback value |
-|---|---|---|
-| `STRATEGY_GATE_URL` | `http://backend:8000/api/signals/candidate` | `http://api:4000/api/signals/candidate` |
-| `WORKER_API_BASE` | `http://backend:8000` | `http://api:4000` |
+**The one rule:** never run two execution engines at once. Since Phase 8 there is
+only one, so the way to break this rule is to restore the archived Express API
+and start its schedulers while the backend is still running. Don't.
 
 ---
 
-## 1. Pre-cutover checks
-
-Run these and read the output — do not proceed on assumption.
+## 0. What runs now
 
 ```bash
-# 1. Both runtimes agree on every API response.
-docker compose --profile legacy up -d postgres redis backend api
-services/backend/.venv/bin/python services/backend/scripts/parity_check.py
-#    -> must print "N/N cases match"
-
-# 2. The backend's schema matches the database.
-cd services/backend && .venv/bin/alembic revision --autogenerate -m "drift check"
-#    -> the generated upgrade() must be `pass`; then DELETE the file
-cd services/backend && .venv/bin/python -m pytest tests/ -q
-#    -> all green
-
-# 3. The global execution mode is CONFIRM or OFF. NEVER cut over under AUTO.
-curl -s localhost:8000/api/config/execution
+docker compose up                     # postgres, redis, backend, web, worker, n8n
+docker compose --profile live up      # ...plus the MT5 bridge (live execution)
 ```
 
-**Invariant 10 of the plan:** during risk/execution cutover the global execution
-mode must be `CONFIRM` or `OFF`. If it reads `AUTO`, stop and set it:
+Only Next.js and Python application containers remain. The browser calls
+same-origin `/api/*` on Next.js, which proxies to the backend over the
+server-only `PYTHON_API_URL`.
 
-```bash
-curl -sX POST localhost:8000/api/config/kill -H 'content-type: application/json' \
-  -d '{"reason":"pre-cutover"}'
-```
+| Concern | Owner |
+|---|---|
+| Signal gate, risk engine, execution, AI, Telegram, broker, SSE, jobs | `services/backend` |
+| Ingestion, indicators, strategies, backtests | `services/data` |
+| UI, session boundary, `/api/*` BFF | `apps/web` |
 
 ---
 
-## 2. Shadow validation (before ownership changes)
+## 1. Daily health checks
 
-Run a second backend instance with `API_SHADOW_MODE=true`. It computes the full
-decision — idempotency, cooldown, AI score, the risk engine, position sizing —
-and **writes nothing**: no `Signal`, no `Trade`, no `RiskLog`, no Telegram
-message, no MT5 order, and its schedulers stay stopped.
+```bash
+curl -s localhost:8000/health/ready | python3 -m json.tool
+```
+
+Read three things:
+
+* `db` and `redis` — both `connected`.
+* `jobs.jobOwner` — must be `true` on exactly one process.
+* `jobs.running` — `paperCron`, `approvalExpiry`, and the schedules you enabled.
+
+Then confirm the AI provider actually works. The gate **fails closed**: a
+rejecting or unreachable provider means every candidate is `skipped`, never
+approved — safe, but silently idle.
+
+```bash
+curl -s localhost:8000/api/ai-provider | python3 -m json.tool
+curl -sX POST localhost:8000/api/ai-provider/test \
+  -H 'content-type: application/json' -d '{"provider":"gemini"}'
+```
+
+`{"ok": false, ...}` here means no signals are being generated. Rotate the key.
+
+---
+
+## 2. Freezing execution
+
+```bash
+# Panic: global mode OFF. Signals still generate and log; nothing opens.
+curl -sX POST localhost:8000/api/config/kill \
+  -H 'content-type: application/json' -d '{"reason":"why"}'
+
+# Clear it (back to CONFIRM, not AUTO).
+curl -sX POST localhost:8000/api/config/arm \
+  -H 'content-type: application/json' -d '{}'
+```
+
+`OFF` and a tripped circuit breaker both override `AUTO` and `CONFIRM`. Every one
+of these writes a `ConfigAudit` row naming the actor.
+
+To stop candidates reaching the gate at all: `docker compose stop worker`.
+
+---
+
+## 3. Verifying the audit trail
+
+After any change, the trail should be complete:
+
+```sql
+-- one RiskLog per evaluated candidate, approved or not
+SELECT count(*) FROM "RiskLog" WHERE "createdAt" > now() - interval '1 hour';
+
+-- one Journal per closed trade, with a grade and an R-multiple
+SELECT t.id, t.status, j.outcome, j.grade, j."rMultiple"
+FROM "Trade" t LEFT JOIN "Journal" j ON j."tradeId" = t.id
+WHERE t.status = 'CLOSED' ORDER BY t."closedAt" DESC LIMIT 5;
+
+-- every config/mode change, and who made it
+SELECT actor, entity, scope, "scopeKey", "createdAt"
+FROM "ConfigAudit" ORDER BY "createdAt" DESC LIMIT 10;
+```
+
+A closed trade without a journal row, or a candidate without a risk log, is a bug
+— not a cosmetic gap.
+
+---
+
+## 4. Schema changes
+
+Alembic is authoritative.
 
 ```bash
 cd services/backend
-API_SHADOW_MODE=true .venv/bin/uvicorn app.main:app --port 8101
+.venv/bin/alembic upgrade head                      # apply
+.venv/bin/alembic revision --autogenerate -m "..."  # after editing models.py
 ```
 
-Post the same candidate to both gates and compare. The shadow response carries
-the decision explicitly:
+An autogenerate run on an unchanged codebase must produce an **empty** diff.
+`tests/test_schema_drift.py` enforces that, so a model change without a migration
+fails the build.
 
-```json
-{
-  "status": "rejected",
-  "reason": "shadow_mode: decision computed, no write",
-  "score": 78,
-  "shadow": {
-    "wouldGenerate": true, "score": 78, "positionSize": 0.2,
-    "riskApproved": true, "reasons": [], "minScore": 70
-  }
-}
-```
-
-Compare **approval, position size, reasons, score threshold, execution mode and
-portfolio-cap result**. Investigate every mismatch; "close enough" is not
-acceptable for a risk decision. The risk engine also emits a
-`[risk] SHADOW_riskLog {...}` line per evaluation for log-based comparison.
+The baseline revision *adopts* the schema Prisma created (it detects a live
+`Candle` table and no-ops), so it never replays history against production. The
+Prisma schema and its twelve SQL migrations are archived at
+`docs/archive/prisma/` as the record of how the schema came to be, and
+`_prisma_migrations` is deliberately left in the database.
 
 ---
 
-## 3. Cutover
+## 5. Rollback
+
+Phase 8 removed the compose-profile rollback. What replaces it depends on what
+broke.
+
+### 5a. A bad backend deploy — roll the code back
+
+The database schema has not changed, so this is a normal revert:
 
 ```bash
-# 1. Freeze execution.
-curl -sX POST localhost:8000/api/config/kill -H 'content-type: application/json' \
-  -d '{"reason":"cutover"}'
-
-# 2. Stop candidate submission.
-docker compose stop worker
-
-# 3. Confirm nothing is in flight.
-curl -s localhost:8000/api/backtests/run/status     # running must be false
-curl -s localhost:8000/api/positions                # note openCount
-docker exec trading-postgres psql -U postgres -d trading -tAc \
-  'SELECT count(*) FROM "Approval" WHERE status = '"'"'PENDING'"'"';'
-#    -> resolve or let expire before continuing
-
-# 4. Ensure Express owns nothing. Its container already sets
-#    ENABLE_PAPER_TRADING/WEEKLY_REVIEW/DAILY_BRIEFING=false, so simply:
-docker compose stop api
-
-# 5. Point the worker at the FastAPI gate (already the compose default) and
-#    confirm the backend owns the jobs.
-curl -s localhost:8000/health/ready | python3 -m json.tool
-#    -> jobs.jobOwner must be true, jobs.shadowMode false
-
-# 6. Restart submission in paper mode and re-arm to CONFIRM.
-docker compose up -d worker
-curl -sX POST localhost:8000/api/config/arm -H 'content-type: application/json' -d '{}'
-
-# 7. Submit one idempotent paper candidate and verify the whole audit trail.
-curl -sX POST localhost:8000/api/signals/candidate \
-  -H 'content-type: application/json' \
-  -d '{"strategyName":"cutover_probe","symbol":"XAUUSD","timeframe":"60min",
-       "direction":"LONG","entryPrice":4000,"stopLoss":3995,"takeProfit":4010,
-       "confidence":70,"reasoning":"cutover verification",
-       "clientId":"cutover-probe-1"}'
-# Re-POST the identical body: the second call MUST return
-#   {"status":"skipped","reason":"idempotent_duplicate"}
+git revert <commit>            # or: git checkout <good-sha> -- services/backend
+docker compose up -d --build backend
+curl -s localhost:8000/health/ready
 ```
 
-Then confirm the trail landed:
+### 5b. A bad migration
 
-```sql
-SELECT id, status, "strategyName" FROM "Signal" ORDER BY "createdAt" DESC LIMIT 1;
-SELECT count(*) FROM "RiskLog"  WHERE "createdAt" > now() - interval '5 minutes';
-SELECT actor, entity, scope FROM "ConfigAudit" ORDER BY "createdAt" DESC LIMIT 5;
+```bash
+cd services/backend
+.venv/bin/alembic downgrade -1
 ```
+
+The **baseline revision refuses to downgrade** on purpose — it adopts a
+pre-existing schema, so reversing it would mean dropping the trade history.
+Restore from a backup instead.
+
+### 5c. Restoring the Express API (last resort)
+
+Only if the FastAPI backend is unusable and you need the old engine back. It is
+in the archive tag, not in the working tree:
+
+```bash
+git tag -l "archive/*"                                  # archive/express-pre-plan11
+git checkout archive/express-pre-plan11 -- apps/api     # restore the source
+git checkout archive/express-pre-plan11 -- Dockerfile.node package.json package-lock.json
+npm install                                             # reinstall express/prisma/etc
+npx prisma generate --schema=apps/api/prisma/schema.prisma
+```
+
+Then, **in this order**:
+
+```bash
+# 1. Freeze, and stop the new engine's jobs FIRST.
+curl -sX POST localhost:8000/api/config/kill -H 'content-type: application/json' -d '{"reason":"rollback"}'
+docker compose stop worker backend
+
+# 2. Start Express (restore its compose service from the tag too, or run it on the host).
+ENABLE_PAPER_TRADING=true API_PORT=4000 npx tsx apps/api/src/index.ts
+
+# 3. Point the worker back at the Express gate.
+STRATEGY_GATE_URL=http://api:4000/api/signals/candidate \
+WORKER_API_BASE=http://api:4000 \
+  docker compose up -d worker
+
+# 4. Verify pending approvals and open trades BEFORE re-arming.
+curl -s localhost:4000/api/positions
+curl -sX POST localhost:4000/api/config/arm -H 'content-type: application/json' -d '{}'
+```
+
+Express reads the same database and the same encrypted broker credentials
+(AES-256-GCM, verified compatible in both directions), and `prisma migrate deploy`
+still works against it — `_prisma_migrations` was left intact for exactly this.
+
+**Never** have the backend's schedulers (`BACKEND_JOB_OWNER=true`) and Express's
+(`ENABLE_PAPER_TRADING=true`) running at the same time.
 
 ---
 
-## 4. Soak
+## 6. Contract parity against the archive
 
-Leave the desk in **paper** mode (`BROKER=paper`) and CONFIRM for the agreed
-observation window. What to watch each day:
-
-- `GET /health/ready` — `db`, `redis`, and `jobs.running`.
-- One journal entry per closed trade, with a grade and an R-multiple.
-- One `RiskLog` row per evaluated candidate, approved or not.
-- A `ConfigAudit` row for every config/mode change.
-- No duplicate `Signal` for a repeated `clientId`, and no duplicate `Trade` per
-  `Signal`.
+`services/backend/scripts/parity_check.py` diffs the backend's responses against
+Express. Express is no longer in the tree, so using it now means restoring the
+archive first (§5c) and running both. It is kept because it is the tool that
+caught two real defects during the migration — a loosened concurrency cap and a
+numeric wire-format drift — and it is the right instrument if a response shape is
+ever questioned.
 
 ---
 
-## 5. Immediate rollback triggers
+## 7. Immediate escalation triggers
 
-Roll back on **any** of these, without deliberation:
+Freeze execution (§2) on any of these:
 
-- A risk decision mismatch.
 - A duplicate signal, approval, trade or broker order.
 - A missing journal or audit entry.
 - An incorrect position size.
 - A kill switch or breaker that did not take precedence.
-- An SSE failure that hides execution state during cutover.
-- A database migration inconsistency.
 - A broker or Telegram secret appearing in a log or an API response.
-
----
-
-## 6. Rollback procedure
-
-```bash
-# 1. Freeze execution FIRST.
-curl -sX POST localhost:8000/api/config/kill -H 'content-type: application/json' \
-  -d '{"reason":"rollback"}'
-
-# 2. Stop candidate submission.
-docker compose stop worker
-
-# 3. Stop the FastAPI execution jobs (leave the API up for reads).
-#    Either stop the container, or restart it as a non-owner:
-docker compose stop backend
-#    ...or: BACKEND_JOB_OWNER=false docker compose up -d backend
-
-# 4. Point the worker's gate back at Express, and start exactly ONE Express
-#    scheduler owner.
-STRATEGY_GATE_URL=http://api:4000/api/signals/candidate \
-WORKER_API_BASE=http://api:4000 \
-ENABLE_PAPER_TRADING=true \
-  docker compose --profile legacy up -d api worker
-
-# 5. Verify pending approvals and open trades BEFORE re-arming.
-curl -s localhost:4000/api/positions
-docker exec trading-postgres psql -U postgres -d trading -tAc \
-  'SELECT id, status FROM "Approval" WHERE status = '"'"'PENDING'"'"';'
-
-# 6. Re-arm only once the above reads clean.
-curl -sX POST localhost:4000/api/config/arm -H 'content-type: application/json' -d '{}'
-```
-
-**Never** have both `backend` (with `BACKEND_JOB_OWNER=true`) and `api` (with
-`ENABLE_PAPER_TRADING=true`) running at the same time.
-
-### Why the schema survives a rollback
-
-Alembic's baseline revision *adopts* the Prisma schema rather than recreating it,
-and revision `20260828000002` creates `RawSignal`/`FeatureFlag` idempotently. The
-Prisma migration history stays in `apps/api/prisma/migrations` and
-`_prisma_migrations` is left untouched, so Express can still run
-`prisma migrate deploy` against the same database after a rollback.
-
----
-
-## 7. Exercising this runbook (required before it counts)
-
-The plan's definition of done requires the rollback to have been exercised at
-least once in a non-production environment. Do it against a scratch database so
-nothing real is at stake:
-
-```bash
-docker exec trading-postgres psql -U postgres -c 'CREATE DATABASE trading_rehearsal;'
-cd services/backend && \
-  DATABASE_URL=postgresql://postgres:postgres@localhost:55432/trading_rehearsal \
-  .venv/bin/alembic upgrade head
-# Point both runtimes at trading_rehearsal, then walk sections 3 and 6 end to end.
-```
-
-Record the date and the outcome here when done:
-
-| Date | Environment | Outcome | Notes |
-|---|---|---|---|
-| _pending_ | | | Rehearsal not yet run — see §7 |
+- Candles going stale while the worker reports healthy.
