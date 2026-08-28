@@ -7,12 +7,15 @@ raising into an execution path.
 """
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import redis.asyncio as aioredis
 
+from ..core.ids import new_id
 from ..core.settings import get_settings
 
 log = logging.getLogger("backend.redis")
@@ -38,12 +41,10 @@ def redis_client() -> aioredis.Redis:
 
 async def ping_redis(timeout_s: float = 1.5) -> bool:
     """PING with a timeout — used by the readiness probe."""
-    import asyncio
-
     try:
         async with asyncio.timeout(timeout_s):
             return bool(await redis_client().ping())
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.warning("redis ping failed: %s", exc)
         return False
 
@@ -51,7 +52,7 @@ async def ping_redis(timeout_s: float = 1.5) -> bool:
 async def cache_get(key: str) -> str | None:
     try:
         return await redis_client().get(key)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.debug("cache get %s failed: %s", key, exc)
         return None
 
@@ -60,7 +61,7 @@ async def cache_set(key: str, value: str, ttl_s: int | None = None) -> bool:
     try:
         await redis_client().set(key, value, ex=ttl_s)
         return True
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.debug("cache set %s failed: %s", key, exc)
         return False
 
@@ -71,7 +72,7 @@ async def cache_del(*keys: str) -> bool:
     try:
         await redis_client().delete(*keys)
         return True
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.debug("cache del failed: %s", exc)
         return False
 
@@ -80,7 +81,7 @@ async def publish(channel: str, payload: str) -> bool:
     try:
         await redis_client().publish(channel, payload)
         return True
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.warning("publish to %s failed: %s", channel, exc)
         return False
 
@@ -98,12 +99,10 @@ async def try_lock(key: str, ttl_s: int = 60) -> AsyncIterator[bool]:
     acquired = False
     client = redis_client()
     try:
-        from ..core.ids import new_id
-
         token = new_id()
         acquired = bool(await client.set(key, token, nx=True, ex=ttl_s))
         yield acquired
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.warning("lock %s unavailable (%s) — proceeding unlocked", key, exc)
         acquired = False
         yield True
@@ -113,15 +112,14 @@ async def try_lock(key: str, ttl_s: int = 60) -> AsyncIterator[bool]:
                 current = await client.get(key)
                 if current == token:
                     await client.delete(key)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
 
 
 async def close_redis() -> None:
     global _client
     if _client is not None:
-        try:
+        # Shutdown path: nothing is left to report a close failure to.
+        with contextlib.suppress(Exception):
             await _client.aclose()
-        except Exception:  # noqa: BLE001
-            pass
     _client = None

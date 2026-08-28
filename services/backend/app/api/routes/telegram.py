@@ -41,6 +41,8 @@ from ...integrations.telegram.config import (
     get_chat_id,
     is_configured,
     set_overrides,
+)
+from ...integrations.telegram.config import (
     status as telegram_status,
 )
 from ...jobs.clock import as_aware_utc, iso_stamp, start_of_utc_day, utcnow
@@ -333,7 +335,7 @@ async def _handle_update(update: dict[str, Any]) -> None:
                     session, f"telegram:{user_id}", str(message.get("text") or "")
                 )
             await send_message(chat_id, reply)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.error("[telegram] webhook handler error: %s", exc)
 
 
@@ -355,7 +357,7 @@ async def telegram_webhook(
 
     try:
         update = await request.json()
-    except Exception:  # noqa: BLE001
+    except Exception:
         update = {}
     if not isinstance(update, dict):
         update = {}

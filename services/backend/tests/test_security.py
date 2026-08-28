@@ -57,7 +57,6 @@ def test_node_can_decrypt_what_python_encrypts(encryption_key: str):
     During the migration window both runtimes can write credentials, so
     compatibility has to hold in both directions. Skipped when node is absent.
     """
-    import json
     import shutil
     import subprocess
 
@@ -74,7 +73,8 @@ const d = crypto.createDecipheriv("aes-256-gcm", Buffer.from(keyHex, "hex"), Buf
 d.setAuthTag(Buffer.from(tagHex, "hex"));
 process.stdout.write(d.update(ctHex, "hex", "utf8") + d.final("utf8"));
 """
-    out = subprocess.run(
+    # Fixed argv, no shell, and the script is a literal in this file.
+    out = subprocess.run(  # noqa: S603
         [node, "-e", script, encryption_key, blob],
         capture_output=True,
         text=True,

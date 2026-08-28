@@ -16,7 +16,16 @@ from decimal import Decimal
 
 import pytest
 
-from app.core.serialization import dec, decimal_str, iso, num, num_or_nan, num_or_none, ser
+from app.core.serialization import (
+    dec,
+    decimal_str,
+    iso,
+    js_number,
+    num,
+    num_or_nan,
+    num_or_none,
+    ser,
+)
 
 
 class TestDecimalStr:
@@ -118,3 +127,37 @@ class TestNumericHelpers:
         assert str(dec(2650.123456789, 8)) == "2650.12345679"
         assert str(dec(-10.505, 2)) in ("-10.50", "-10.51")  # banker's-rounding tolerant
         assert str(dec(1, 2)) == "1.00"
+
+
+class TestJsNumber:
+    """`JSON.stringify` renders an integral JS number without a decimal point.
+
+    Python would emit `100.0` where Express emitted `100`; every computed
+    numeric response field goes through `js_number` so the bodies match.
+    """
+
+    def test_narrows_an_integral_float_to_int(self):
+        assert js_number(100.0) == 100
+        assert isinstance(js_number(100.0), int)
+
+    def test_keeps_a_fractional_float(self):
+        assert js_number(1.5) == 1.5
+        assert isinstance(js_number(1.5), float)
+
+    def test_passes_ints_through(self):
+        assert js_number(5) == 5
+        assert isinstance(js_number(5), int)
+
+    def test_preserves_null(self):
+        assert js_number(None) is None
+
+    def test_passes_non_finite_values_through(self):
+        # The encoder maps these to null — exactly what JSON.stringify(Infinity) does.
+        import math
+
+        assert js_number(math.inf) == math.inf
+        assert math.isnan(js_number(math.nan))  # type: ignore[arg-type]
+
+    def test_negative_integral_values_narrow_too(self):
+        assert js_number(-42.0) == -42
+        assert isinstance(js_number(-42.0), int)

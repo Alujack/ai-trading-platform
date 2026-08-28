@@ -16,15 +16,15 @@ from decimal import Decimal
 from sqlalchemy import (
     Boolean,
     DateTime,
-    Enum as SAEnum,
     ForeignKey,
     Index,
     Integer,
     Numeric,
-    String,
     Text,
-    UniqueConstraint,
     func,
+)
+from sqlalchemy import (
+    Enum as SAEnum,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -64,7 +64,13 @@ _Ts = DateTime(timezone=False)
 class Candle(Base):
     __tablename__ = "Candle"
     __table_args__ = (
-        UniqueConstraint("symbol", "timeframe", "timestamp", name="Candle_symbol_timeframe_timestamp_key"),
+        Index(
+            "Candle_symbol_timeframe_timestamp_key",
+            "symbol",
+            "timeframe",
+            "timestamp",
+            unique=True,
+        ),
         Index("Candle_symbol_timeframe_timestamp_idx", "symbol", "timeframe", "timestamp"),
     )
 
@@ -83,8 +89,12 @@ class Candle(Base):
 class Indicator(Base):
     __tablename__ = "Indicator"
     __table_args__ = (
-        UniqueConstraint(
-            "symbol", "timeframe", "timestamp", name="Indicator_symbol_timeframe_timestamp_key"
+        Index(
+            "Indicator_symbol_timeframe_timestamp_key",
+            "symbol",
+            "timeframe",
+            "timestamp",
+            unique=True,
         ),
         Index("Indicator_symbol_timeframe_timestamp_idx", "symbol", "timeframe", "timestamp"),
     )
@@ -108,7 +118,7 @@ class Indicator(Base):
 class NewsEvent(Base):
     __tablename__ = "NewsEvent"
     __table_args__ = (
-        UniqueConstraint("title", "scheduledAt", name="NewsEvent_title_scheduledAt_key"),
+        Index("NewsEvent_title_scheduledAt_key", "title", "scheduledAt", unique=True),
         Index("NewsEvent_scheduledAt_idx", "scheduledAt"),
         Index("NewsEvent_currency_idx", "currency"),
     )
@@ -127,9 +137,10 @@ class NewsEvent(Base):
 
 class Strategy(Base):
     __tablename__ = "Strategy"
+    __table_args__ = (Index("Strategy_name_key", "name", unique=True),)
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     regimes: Mapped[str] = mapped_column(Text, nullable=False)
     params: Mapped[dict] = mapped_column(_Json, nullable=False)
@@ -159,8 +170,8 @@ class Signal(Base):
     )
     createdAt: Mapped[datetime] = mapped_column(_Ts, nullable=False, server_default=func.now())
 
-    trades: Mapped[list["Trade"]] = relationship(back_populates="signal", lazy="selectin")
-    approval: Mapped["Approval | None"] = relationship(back_populates="signal", lazy="selectin")
+    trades: Mapped[list[Trade]] = relationship(back_populates="signal", lazy="selectin")
+    approval: Mapped[Approval | None] = relationship(back_populates="signal", lazy="selectin")
 
 
 class Trade(Base):
@@ -172,7 +183,14 @@ class Trade(Base):
     )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    signalId: Mapped[str] = mapped_column(Text, ForeignKey("Signal.id"), nullable=False)
+    signalId: Mapped[str] = mapped_column(
+        Text, ForeignKey(
+            "Signal.id",
+            name="Trade_signalId_fkey",
+            onupdate="CASCADE",
+            ondelete="RESTRICT",
+        ), nullable=False
+    )
     entryPrice: Mapped[Decimal] = mapped_column(Numeric(18, 8), nullable=False)
     exitPrice: Mapped[Decimal | None] = mapped_column(Numeric(18, 8))
     positionSize: Mapped[Decimal] = mapped_column(Numeric(24, 8), nullable=False)
@@ -188,7 +206,7 @@ class Trade(Base):
     broker: Mapped[str | None] = mapped_column(Text)
 
     signal: Mapped[Signal] = relationship(back_populates="trades", lazy="selectin")
-    journals: Mapped[list["Journal"]] = relationship(back_populates="trade", lazy="selectin")
+    journals: Mapped[list[Journal]] = relationship(back_populates="trade", lazy="selectin")
 
 
 class Journal(Base):
@@ -196,7 +214,14 @@ class Journal(Base):
     __table_args__ = (Index("Journal_tradeId_idx", "tradeId"),)
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
-    tradeId: Mapped[str] = mapped_column(Text, ForeignKey("Trade.id"), nullable=False)
+    tradeId: Mapped[str] = mapped_column(
+        Text, ForeignKey(
+            "Trade.id",
+            name="Journal_tradeId_fkey",
+            onupdate="CASCADE",
+            ondelete="RESTRICT",
+        ), nullable=False
+    )
     notes: Mapped[str] = mapped_column(Text, nullable=False)
     aiReview: Mapped[str] = mapped_column(Text, nullable=False)
     emotions: Mapped[str | None] = mapped_column(Text)
@@ -225,7 +250,9 @@ class RiskLog(Base):
 
 class RiskConfig(Base):
     __tablename__ = "RiskConfig"
-    __table_args__ = (UniqueConstraint("scope", "scopeKey", name="RiskConfig_scope_scopeKey_key"),)
+    __table_args__ = (
+        Index("RiskConfig_scope_scopeKey_key", "scope", "scopeKey", unique=True),
+    )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     scope: Mapped[str] = mapped_column(Text, nullable=False)
@@ -252,7 +279,7 @@ class RiskConfig(Base):
 class ExecutionSetting(Base):
     __tablename__ = "ExecutionSetting"
     __table_args__ = (
-        UniqueConstraint("scope", "scopeKey", name="ExecutionSetting_scope_scopeKey_key"),
+        Index("ExecutionSetting_scope_scopeKey_key", "scope", "scopeKey", unique=True),
     )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -345,13 +372,19 @@ class AgentRecommendation(Base):
 class Approval(Base):
     __tablename__ = "Approval"
     __table_args__ = (
+        Index("Approval_signalId_key", "signalId", unique=True),
         Index("Approval_status_idx", "status"),
         Index("Approval_expiresAt_idx", "expiresAt"),
     )
 
     id: Mapped[str] = mapped_column(Text, primary_key=True)
     signalId: Mapped[str] = mapped_column(
-        Text, ForeignKey("Signal.id"), nullable=False, unique=True
+        Text, ForeignKey(
+            "Signal.id",
+            name="Approval_signalId_fkey",
+            onupdate="CASCADE",
+            ondelete="RESTRICT",
+        ), nullable=False
     )
     status: Mapped[ApprovalStatus] = mapped_column(
         _enum(ApprovalStatus, "ApprovalStatus"), nullable=False, default=ApprovalStatus.PENDING
@@ -375,6 +408,7 @@ class RawSignal(Base):
 
     __tablename__ = "RawSignal"
     __table_args__ = (
+        Index("RawSignal_dedupeKey_key", "dedupeKey", unique=True),
         Index("RawSignal_createdAt_idx", "createdAt"),
         Index("RawSignal_strategyName_idx", "strategyName"),
         Index("RawSignal_symbol_timeframe_idx", "symbol", "timeframe"),
@@ -397,7 +431,7 @@ class RawSignal(Base):
     blockedBy: Mapped[str | None] = mapped_column(Text)
     blockedReason: Mapped[str | None] = mapped_column(Text)
     signalId: Mapped[str | None] = mapped_column(Text)
-    dedupeKey: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    dedupeKey: Mapped[str] = mapped_column(Text, nullable=False)
     seenCount: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     lastSeenAt: Mapped[datetime] = mapped_column(_Ts, nullable=False, server_default=func.now())
     createdAt: Mapped[datetime] = mapped_column(_Ts, nullable=False, server_default=func.now())
@@ -414,22 +448,22 @@ class FeatureFlag(Base):
 
 
 __all__ = [
-    "Base",
-    "Candle",
-    "Indicator",
-    "NewsEvent",
-    "Strategy",
-    "Signal",
-    "Trade",
-    "Journal",
-    "RiskLog",
-    "RiskConfig",
-    "ExecutionSetting",
-    "ConfigAudit",
-    "BacktestRun",
-    "BrokerCredential",
     "AgentRecommendation",
     "Approval",
-    "RawSignal",
+    "BacktestRun",
+    "Base",
+    "BrokerCredential",
+    "Candle",
+    "ConfigAudit",
+    "ExecutionSetting",
     "FeatureFlag",
+    "Indicator",
+    "Journal",
+    "NewsEvent",
+    "RawSignal",
+    "RiskConfig",
+    "RiskLog",
+    "Signal",
+    "Strategy",
+    "Trade",
 ]

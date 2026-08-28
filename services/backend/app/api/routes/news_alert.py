@@ -37,7 +37,7 @@ async def post_news_alert(request: Request, response: Response) -> dict[str, Any
     """
     try:
         body = await request.json()
-    except Exception:  # noqa: BLE001
+    except Exception:
         body = {}
     if not isinstance(body, dict):
         body = {}

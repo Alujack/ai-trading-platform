@@ -14,6 +14,12 @@ from app.core.settings import get_settings
 from app.domain.execution.broker import reset_broker
 
 
+# The AI settings module reads provider keys at import time via
+# pydantic-settings. No test makes a real API call, but importing the module
+# chain touches them. (Carried over from services/ai/tests/conftest.py.)
+os.environ.setdefault("ANTHROPIC_API_KEY", "test-key-not-used")
+
+
 @pytest.fixture(autouse=True)
 def clean_settings(monkeypatch: pytest.MonkeyPatch):
     """Isolate settings + the memoized broker/symbol map between tests."""

@@ -86,7 +86,9 @@ def classify_gate_outcome(status: str, reason: str | None = None) -> GateOutcome
             return "cooldown"
         if r.startswith("insufficient_candles"):
             return "insufficient_candles"
-        if r.startswith("ai_service_") or r.startswith("ai_service_unreachable"):
+        # Covers both gate spellings: "ai_service_<status>" and
+        # "ai_service_unreachable" (the latter is already a prefix match).
+        if r.startswith("ai_service_"):
             return "ai_unreachable"
         if r.startswith("ai_score_too_low"):
             return "ai_score"
@@ -187,7 +189,7 @@ async def record_raw_candidate(session: AsyncSession, candidate) -> str | None:
         row_id = (await session.execute(stmt)).scalar_one()
         await session.commit()
         return str(row_id)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         await session.rollback()
         log.error("[rawfeed] record failed: %s", exc)
         return None
@@ -219,6 +221,6 @@ async def stamp_raw_verdict(session: AsyncSession, raw_id: str | None, result) -
             stmt = stmt.where(RawSignal.verdict != RawVerdict.GENERATED)
         await session.execute(stmt.values(**values))
         await session.commit()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         await session.rollback()
         log.error("[rawfeed] stamp failed: %s", exc)

@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, create_model
 from sqlalchemy import select
 
 from ...core.logging import get_logger
-from ...core.serialization import ser
+from ...core.serialization import js_number, ser
 from ...db.enums import ExecutionMode
 from ...db.models import RiskConfig
 from ...domain.config.defaults import RISK_BOUNDS, bounds_wire
@@ -91,7 +91,7 @@ async def get_risk(
     )
     return ser(
         {
-            "effective": effective.as_dict(),
+            "effective": _effective_wire(effective),
             "rows": [_risk_row(r) for r in rows],
             "bounds": bounds_wire(),
         }
@@ -112,7 +112,7 @@ async def put_risk(body: PutRiskBody, session: Db, response: Response) -> dict[s
         scope_key if scope == "STRATEGY" else None,
         scope_key if scope == "SYMBOL" else None,
     )
-    return ser({"ok": True, "effective": effective.as_dict()})
+    return ser({"ok": True, "effective": _effective_wire(effective)})
 
 
 @router.get("/api/config/execution")
@@ -173,6 +173,11 @@ async def put_raw_feed(body: RawFeedBody, session: Db) -> dict[str, Any]:
         "ENABLED" if body.enabled else "disabled",
     )
     return {"ok": True, **state.as_dict()}
+
+
+def _effective_wire(effective) -> dict[str, Any]:
+    """The resolved config with JS-shaped numbers (`1`, not `1.0`)."""
+    return {k: js_number(v) for k, v in effective.as_dict().items()}
 
 
 def _risk_row(r: RiskConfig) -> dict[str, Any]:

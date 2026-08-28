@@ -12,6 +12,7 @@ unchanged and still runs when `BROKER=paper`.
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -57,7 +58,7 @@ async def open_live_trade(session: AsyncSession, signal_id: str) -> OpenResult:
     entry = num_or_nan(signal.entryPrice)
     stop = num_or_nan(signal.stopLoss)
     tp = num_or_nan(signal.takeProfit)
-    if entry != entry or stop != stop or entry == stop:
+    if not math.isfinite(entry) or not math.isfinite(stop) or entry == stop:
         return OpenResult("skipped", "invalid_levels")
 
     broker = get_broker()
@@ -72,7 +73,7 @@ async def open_live_trade(session: AsyncSession, signal_id: str) -> OpenResult:
     try:
         account = await broker.get_account()
         spec = await broker.get_symbol_spec(signal.symbol)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return OpenResult("skipped", f"broker_spec_error: {exc}")
 
     # Per-strategy risk % (STRATEGY-scope RiskConfig) so a stacking scalper can
@@ -107,7 +108,7 @@ async def open_live_trade(session: AsyncSession, signal_id: str) -> OpenResult:
                 clientTag=signal_id,
             )
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return OpenResult("skipped", f"order_error: {exc}")
 
     if result.status != "filled":
@@ -176,7 +177,7 @@ async def _review_live_close(trade: Trade, exit_price: float, profit: float, r_m
             }
         )
         return await ai.trade_review(request)
-    except Exception:  # noqa: BLE001 — a review failure must not block the close
+    except Exception:
         return None
 
 
@@ -263,7 +264,7 @@ async def monitor_live_trades(session: AsyncSession) -> MonitorSummary:
     broker = get_broker()
     try:
         live_positions = await broker.get_positions()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.error("[liveTrade] get_positions failed: %s", exc)
         return MonitorSummary(
             inspected=len(open_trades), closed=0, unchanged=len(open_trades)
@@ -287,7 +288,7 @@ async def monitor_live_trades(session: AsyncSession) -> MonitorSummary:
             if history and history.found and history.exitPrice is not None:
                 exit_price = history.exitPrice
                 realized_profit = history.profit or 0.0
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.warning("[liveTrade] history fetch failed ticket=%s: %s", ticket, exc)
 
         result = await finalize_live_close(

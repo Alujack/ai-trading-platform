@@ -8,6 +8,7 @@ expiry sweep can clean it up — the signal never auto-opens as a fallback.
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -98,8 +99,6 @@ async def request_approval(
         return {"created": False, "reason": "approval_exists"}
 
     chat_id = default_chat_id() or ""
-    from datetime import timedelta
-
     approval = Approval(
         id=new_id(),
         signalId=signal.id,

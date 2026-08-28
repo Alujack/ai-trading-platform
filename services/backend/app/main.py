@@ -13,8 +13,8 @@ the pools so no tick is cut off mid-transaction.
 from __future__ import annotations
 
 import logging
-from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
@@ -61,7 +61,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             async with session_scope() as session:
                 result = await ensure_broker_session(session)
             log.info("[broker] startup session: ok=%s %s", result["ok"], result["detail"])
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.error("[broker] startup session failed: %s", exc)
 
     start_schedulers()
@@ -71,7 +71,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if cfg.enable_daily_briefing and cfg.backend_job_owner and not cfg.api_shadow_mode:
         try:
             await run_daily_briefing_once()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.error("[startup] daily briefing failed: %s", exc)
 
     log.info("backend ready on %s:%s", cfg.backend_host, cfg.backend_port)

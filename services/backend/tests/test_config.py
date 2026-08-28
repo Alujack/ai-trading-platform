@@ -234,3 +234,45 @@ class TestFlagResolution:
 
         monkeypatch.setattr(flags, "_flag_rows", _boom)
         assert await flags.is_flag_enabled(None, flags.RAW_FEED_FLAG) is False
+
+
+class TestMaxOpenTradesDualDefault:
+    """`PAPER_MAX_OPEN_TRADES` has two different fallbacks in the original.
+
+    `config/defaults.ts` falls back to 1 (the risk-engine concurrency cap — the
+    "one trade at a time" sticky rule), while `positions.routes.ts` falls back to
+    5 for the dashboard's `maxOpen` display. Collapsing them onto 5 would loosen
+    the concurrency cap five-fold, so both are pinned here.
+    """
+
+    def test_the_risk_cap_defaults_to_one(self, monkeypatch):
+        monkeypatch.delenv("PAPER_MAX_OPEN_TRADES", raising=False)
+        get_settings.cache_clear()
+        assert risk_defaults().maxOpenTrades == 1
+
+    def test_the_display_value_defaults_to_five(self, monkeypatch):
+        monkeypatch.delenv("PAPER_MAX_OPEN_TRADES", raising=False)
+        get_settings.cache_clear()
+        assert get_settings().paper_max_open_trades_display == 5
+
+    def test_an_explicit_env_value_applies_to_both(self, monkeypatch):
+        monkeypatch.setenv("PAPER_MAX_OPEN_TRADES", "3")
+        get_settings.cache_clear()
+        assert risk_defaults().maxOpenTrades == 3
+        assert get_settings().paper_max_open_trades_display == 3
+
+    def test_a_malformed_env_value_fails_fast_instead_of_disabling_the_cap(self, monkeypatch):
+        """A deliberate improvement over the Express behaviour.
+
+        `Number("not-a-number")` is `NaN`, and `openedToday >= NaN` is always
+        false — so in Express a typo'd `PAPER_MAX_OPEN_TRADES` silently switched
+        the concurrency cap OFF. Pydantic refuses to construct the settings
+        instead, so the service fails loudly at boot rather than trading
+        unbounded.
+        """
+        from pydantic import ValidationError
+
+        monkeypatch.setenv("PAPER_MAX_OPEN_TRADES", "not-a-number")
+        get_settings.cache_clear()
+        with pytest.raises(ValidationError):
+            get_settings()

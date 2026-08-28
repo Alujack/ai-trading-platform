@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...core.ids import new_id
 from ...core.serialization import dec
+from ...core.settings import get_settings
 from ...db.models import RiskLog
 
 log = logging.getLogger("backend.risk")
@@ -220,114 +221,6 @@ def is_news_window(
 
 
 # =========================================================================
-# Gold Multi-Strategy Risk Management
-# =========================================================================
-
-#: Max concurrent Gold positions (across all strategies).
-GOLD_MAX_CONCURRENT = 3
-#: Max positions in the same direction (prevent directional stacking).
-GOLD_MAX_SAME_DIRECTION = 2
-#: Daily profit target — once hit, reduce risk per trade.
-GOLD_DAILY_TARGET_PCT = 1.5
-#: Reduced risk per trade after hitting the daily target.
-GOLD_REDUCED_RISK_PCT = 0.5
-#: Max consecutive losses in a session before pausing.
-GOLD_MAX_CONSECUTIVE_LOSSES = 3
-#: Max risk allocated to a single session (Asian/London/NY).
-GOLD_SESSION_RISK_BUDGET_PCT = 1.0
-
-
-@dataclass(slots=True)
-class OpenGoldPosition:
-    symbol: str
-    direction: str
-    strategy: str
-    session: str
-    riskAmount: float
-
-
-@dataclass(slots=True)
-class GoldRiskContext:
-    openPositions: list[OpenGoldPosition]
-    direction: str
-    strategyName: str
-    session: str
-    todayPnlPct: float
-    sessionConsecutiveLosses: int
-    sessionRiskUsed: float
-    accountBalance: float
-
-
-def validate_gold_risk(ctx: GoldRiskContext) -> list[str]:
-    """Gold-specific multi-strategy constraints, IN ADDITION TO the base checks."""
-    reasons: list[str] = []
-
-    # 1. Max concurrent Gold positions.
-    if len(ctx.openPositions) >= GOLD_MAX_CONCURRENT:
-        reasons.append(
-            f"Gold concurrent limit: {len(ctx.openPositions)}/{GOLD_MAX_CONCURRENT} positions already open"
-        )
-
-    # 2. Directional correlation guard — prevent stacking same direction.
-    same_dir = [p for p in ctx.openPositions if p.direction == ctx.direction]
-    if len(same_dir) >= GOLD_MAX_SAME_DIRECTION:
-        reasons.append(
-            f"Gold direction limit: {len(same_dir)}/{GOLD_MAX_SAME_DIRECTION} {ctx.direction} positions already open"
-        )
-
-    # 3. Consecutive loss circuit breaker — pause until next session.
-    if ctx.sessionConsecutiveLosses >= GOLD_MAX_CONSECUTIVE_LOSSES:
-        reasons.append(
-            f"Gold session paused: {ctx.sessionConsecutiveLosses} consecutive losses in {ctx.session} session"
-        )
-
-    # 4. Session risk budget — max total risk per session.
-    session_budget = ctx.accountBalance * (GOLD_SESSION_RISK_BUDGET_PCT / 100)
-    if ctx.sessionRiskUsed >= session_budget:
-        reasons.append(
-            f"Gold session budget exhausted: ${ctx.sessionRiskUsed:.2f} / ${session_budget:.2f} in {ctx.session}"
-        )
-
-    # 5. Trailing daily target — log a warning, do not block.
-    if ctx.todayPnlPct >= GOLD_DAILY_TARGET_PCT:
-        _log(
-            "goldRisk_dailyTargetHit",
-            {
-                "todayPnlPct": ctx.todayPnlPct,
-                "threshold": GOLD_DAILY_TARGET_PCT,
-                "recommendation": f"Reduce risk to {GOLD_REDUCED_RISK_PCT}% per trade",
-            },
-        )
-
-    if reasons:
-        _log(
-            "goldRisk_blocked",
-            {
-                "strategy": ctx.strategyName,
-                "direction": ctx.direction,
-                "session": ctx.session,
-                "reasons": reasons,
-            },
-        )
-    return reasons
-
-
-def get_gold_adjusted_risk(base_risk_pct: float, today_pnl_pct: float) -> float:
-    """Reduced risk % once the Gold daily target is hit, else the base %."""
-    if today_pnl_pct >= GOLD_DAILY_TARGET_PCT:
-        _log(
-            "goldRisk_reducedRisk",
-            {
-                "baseRiskPct": base_risk_pct,
-                "adjustedRiskPct": GOLD_REDUCED_RISK_PCT,
-                "reason": f"Daily target {GOLD_DAILY_TARGET_PCT}% hit (current: {today_pnl_pct:.2f}%)",
-            },
-        )
-        return GOLD_REDUCED_RISK_PCT
-    return base_risk_pct
-
-
-# =========================================================================
 # validateTrade
 # =========================================================================
 
@@ -356,7 +249,6 @@ class ValidateTradeInput:
     riskPercent: float
     upcomingNews: list[NewsLite] = field(default_factory=list)
     thresholds: RiskThresholds | None = None
-    goldContext: GoldRiskContext | None = None
 
 
 @dataclass(slots=True)
@@ -373,7 +265,7 @@ async def validate_trade(
 
     Reason ordering is load-bearing: `raw_feed.classify_gate_outcome` maps the
     joined reason string back to the layer that stopped the candidate, following
-    this exact push order (inputs → daily loss → drawdown → RR → news → gold).
+    this exact push order (inputs → daily loss → drawdown → RR → news).
     """
     reasons: list[str] = []
     t = data.thresholds or RiskThresholds()
@@ -415,29 +307,44 @@ async def validate_trade(
             else "Inside high-impact news window"
         )
 
-    # --- Gold multi-strategy risk checks ---
-    if data.goldContext is not None:
-        reasons.extend(validate_gold_risk(data.goldContext))
-
     approved = len(reasons) == 0
     daily_loss_limit = data.accountBalance * (daily_loss_limit_pct / 100)
 
-    try:
-        session.add(
-            RiskLog(
-                id=new_id(),
-                accountBalance=dec(data.accountBalance, 2),
-                riskPercent=dec(data.riskPercent, 4),
-                positionSize=dec(position_size, 8),
-                dailyLoss=dec(data.todayLoss, 2),
-                dailyLossLimit=dec(daily_loss_limit, 2),
-                circuitBreakerTripped=not approved,
-                createdAt=datetime.now(timezone.utc).replace(tzinfo=None),
-            )
+    # RiskLog is written whether or not the candidate was approved — a rejected
+    # candidate still has to leave an audit trail. The one exception is shadow
+    # mode: a shadow instance runs beside the real writer, so persisting here
+    # would dual-write and double every row (plan §4 invariant 3: "Shadow
+    # services are read-only and must not dual-write"). It emits a structured
+    # parity log line instead.
+    if get_settings().api_shadow_mode:
+        _log(
+            "SHADOW_riskLog",
+            {
+                "accountBalance": data.accountBalance,
+                "riskPercent": data.riskPercent,
+                "positionSize": position_size,
+                "dailyLoss": data.todayLoss,
+                "dailyLossLimit": daily_loss_limit,
+                "circuitBreakerTripped": not approved,
+            },
         )
-        await session.flush()
-    except Exception as exc:  # noqa: BLE001 — the verdict must survive a log failure
-        log.error("[risk] failed to persist RiskLog: %s", exc)
+    else:
+        try:
+            session.add(
+                RiskLog(
+                    id=new_id(),
+                    accountBalance=dec(data.accountBalance, 2),
+                    riskPercent=dec(data.riskPercent, 4),
+                    positionSize=dec(position_size, 8),
+                    dailyLoss=dec(data.todayLoss, 2),
+                    dailyLossLimit=dec(daily_loss_limit, 2),
+                    circuitBreakerTripped=not approved,
+                    createdAt=datetime.now(timezone.utc).replace(tzinfo=None),
+                )
+            )
+            await session.flush()
+        except Exception as exc:
+            log.error("[risk] failed to persist RiskLog: %s", exc)
 
     _log(
         "validateTrade",

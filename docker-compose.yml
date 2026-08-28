@@ -35,35 +35,97 @@ services:
       retries: 5
 
   # ---- Application services -------------------------------------------------
-  # All four run IN the compose network and talk to each other by service name
-  # on the services' INTERNAL ports (postgres:5432, redis:6379, ai:8000,
-  # api:4000) — independent of the host-shifted ports in .env. Connection URLs
-  # are overridden here; everything else (API keys, secrets) comes from .env via
-  # env_file. `environment` always wins over `env_file`.
+  # Two application frameworks (docs/plans/11): Next.js for the dashboard, the
+  # session boundary and a thin same-origin BFF; Python/FastAPI for every
+  # trading-domain concern. Services talk to each other by name on their
+  # INTERNAL ports (postgres:5432, redis:6379, backend:8000) — independent of the
+  # host-shifted ports in .env. Connection URLs are overridden here; everything
+  # else (API keys, secrets) comes from .env via env_file. `environment` always
+  # wins over `env_file`.
+  #
+  #   docker compose up                    # web + backend + worker + n8n
+  #   docker compose --profile live up      # ...plus the MT5 bridge
+  #   docker compose --profile legacy up    # ...plus Express, for a rollback
 
-  # AI analysis service (FastAPI). Validates signals + summarizes news.
-  ai:
+  # Trading-domain backend (FastAPI). Owns Postgres, Redis, the signal gate, the
+  # authoritative risk engine, paper/live execution, AI orchestration, Telegram +
+  # broker integrations, SSE and the scheduled jobs. The AI service that used to
+  # live at services/ai is now in-process here (app/integrations/ai), so there is
+  # no internal HTTP hop for analysis calls.
+  #
+  # Runs `alembic upgrade head` before serving: on an existing database the
+  # baseline revision ADOPTS the Prisma-created schema without touching a row.
+  #
+  # NOT published to the host by default — the browser reaches it only through
+  # the Next.js BFF. Set BACKEND_PORT in .env to expose it for debugging.
+  backend:
     build:
-      context: ./services/ai
-    container_name: trading-ai
+      context: ./services/backend
+    container_name: trading-backend
     restart: unless-stopped
     env_file: .env
+    command: >-
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
     environment:
-      - AI_SERVICE_HOST=0.0.0.0
-      - AI_SERVICE_PORT=8000
+      - BACKEND_HOST=0.0.0.0
+      - BACKEND_PORT=8000
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-trading}
+      - REDIS_URL=redis://redis:6379
+      # Exactly ONE process may own the schedulers (approval expiry, paper
+      # reconcile, trailing stops). Keep this true here and false anywhere else.
+      - BACKEND_JOB_OWNER=${BACKEND_JOB_OWNER:-true}
+      - API_SHADOW_MODE=${API_SHADOW_MODE:-false}
+      - BROKER=${BROKER:-paper}
+      - EXNESS_ENV=${EXNESS_ENV:-demo}
+      # In-network default: reach the dockerized bridge by service name. Override
+      # MT5_BRIDGE_URL in .env (e.g. http://host.docker.internal:8800) only if you
+      # run the bridge natively on the host instead of the `live` profile.
+      - MT5_BRIDGE_URL=${MT5_BRIDGE_URL:-http://mt5bridge:8800}
+      - MT5_BRIDGE_TOKEN=${MT5_BRIDGE_TOKEN:-}
+      - 'BROKER_SYMBOL_MAP={"EURUSD":"EURUSDm","XAUUSD":"XAUUSDm","BTCUSD":"BTCUSDm"}'
+      # Where the UI-triggered backtester lives (mounted below).
+      - BACKTEST_DATA_DIR=/data
+      # Secret overrides pasted from the dashboard persist on a named volume so
+      # they survive a rebuild without ever entering the image.
+      - AI_PROVIDER_OVERRIDES_PATH=/state/.provider_overrides.json
+      - TELEGRAM_OVERRIDES_PATH=/state/.telegram-overrides.json
     ports:
-      - "${AI_SERVICE_PORT:-8000}:8000"
+      - "${BACKEND_PORT:-8000}:8000"
     volumes:
-      - ./services/ai/src:/app/src
+      - ./services/backend/app:/app/app
+      - ./services/backend/migrations:/app/migrations
+      - ./services/backend/scripts:/app/scripts
+      # The backtest job spawns services/data/backtester.py as a child process.
+      - ./services/data:/data
+      - backend-state:/state
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=5).status==200 else 1)\""]
+      interval: 15s
+      timeout: 8s
+      retries: 10
+      start_period: 40s
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
 
-  # Main backend (Express + Prisma). The single signal gate + risk engine.
-  # Runs `prisma migrate deploy` against Postgres before serving so the schema
-  # is always current. Published on the host at :4000 because the BROWSER calls
-  # it directly (NEXT_PUBLIC_API_URL).
+  # LEGACY Express + Prisma API — the rollback path, NOT started by default.
+  #
+  # docs/plans/11 keeps this service available until the FastAPI backend has
+  # completed its paper-trading soak, because the documented rollback is "point
+  # the worker gate back to Express". It is behind the `legacy` profile so
+  # `docker compose up` runs the two-framework architecture:
+  #
+  #     docker compose up                      # Next.js + Python only
+  #     docker compose --profile legacy up     # adds Express for a rollback
+  #
+  # NEVER run both execution engines at once: if you start this, first set the
+  # global execution mode to OFF and stop the backend's schedulers
+  # (BACKEND_JOB_OWNER=false). See docs/runbooks/11-cutover-and-rollback.md.
   api:
+    profiles: ["legacy"]
     build:
       context: .
       dockerfile: Dockerfile.node
@@ -84,7 +146,14 @@ services:
       - REDIS_URL=redis://redis:6379
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - AI_SERVICE_URL=http://ai:8000
+      # The AI service is in-process in the Python backend now; this points the
+      # legacy container at the backend's /analyze/* compatibility routes.
+      - AI_SERVICE_URL=http://backend:8000
+      # Off by default: the FastAPI backend owns execution. Only flip these in a
+      # deliberate rollback, with the backend's jobs stopped first.
+      - ENABLE_PAPER_TRADING=false
+      - ENABLE_WEEKLY_REVIEW=false
+      - ENABLE_DAILY_BRIEFING=false
       - BROKER=${BROKER:-paper}
       - EXNESS_ENV=${EXNESS_ENV:-demo}
       # In-network default: reach the dockerized bridge by service name. Override
@@ -105,12 +174,14 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      ai:
-        condition: service_started
 
-  # Next.js dashboard. Internal port 3000, published on the host at :3100.
-  # NEXT_PUBLIC_API_URL stays http://localhost:4000 — it is baked into the
-  # client bundle and used by the user's BROWSER, not from inside the network.
+  # Next.js dashboard + the thin same-origin BFF. Internal port 3000, published
+  # on the host at :3100.
+  #
+  # The browser now calls ONLY this origin: app/api/[...path] forwards /api/*
+  # to the Python backend over PYTHON_API_URL, which is server-only and never
+  # reaches the client bundle. NEXT_PUBLIC_API_URL is deliberately unset — the
+  # web client falls back to relative /api paths (see apps/web/lib/api.ts).
   web:
     build:
       context: .
@@ -123,7 +194,14 @@ services:
     environment:
       - NODE_ENV=development
       - WEB_PORT=3000
-      - NEXT_PUBLIC_API_URL=http://localhost:4000
+      # Server-only BFF target. No NEXT_PUBLIC_ prefix: the Docker hostname and
+      # every backend secret must stay out of the browser bundle.
+      - PYTHON_API_URL=http://backend:8000
+      # Forced EMPTY so the browser uses same-origin /api/*. Next inlines every
+      # NEXT_PUBLIC_* into the client bundle, so a leftover value in .env would
+      # send the browser straight to the legacy Express host and bypass the BFF.
+      # `environment` beats `env_file`, which is exactly why this line is here.
+      - NEXT_PUBLIC_API_URL=
       # Windows bind mounts don't propagate inotify events into the container —
       # poll so next dev hot-reloads on host-side edits.
       - WATCHPACK_POLLING=true
@@ -134,11 +212,12 @@ services:
       - ./apps/web/lib:/app/apps/web/lib
       - ./packages/shared/src:/app/packages/shared/src
     depends_on:
-      api:
+      backend:
         condition: service_started
 
   # Python worker: candles → indicators → strategy scan → POST candidates to the
-  # API gate. POSTs over the network to http://api:4000.
+  # gate. Points at the FastAPI backend; STRATEGY_GATE_URL is the single switch
+  # the cutover/rollback procedure flips (docs/runbooks/11-cutover-and-rollback.md).
   worker:
     build:
       context: ./services/data
@@ -148,15 +227,19 @@ services:
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-trading}
       - REDIS_URL=redis://redis:6379
-      - API_PUBLIC_URL=http://api:4000
-      - AI_SERVICE_URL=http://ai:8000
-    volumes:
-      - ./services/data:/app
+      # Base URL for the worker's API calls (rt-notify, raw-feed probe).
+      - API_PUBLIC_URL=${WORKER_API_BASE:-http://backend:8000}
+      # The signal gate. Rollback = point this back at http://api:4000.
+      - STRATEGY_GATE_URL=${STRATEGY_GATE_URL:-http://backend:8000/api/signals/candidate}
+      # /analyze/* now lives on the backend (compatibility routes).
+      - AI_SERVICE_URL=http://backend:8000
     depends_on:
       postgres:
         condition: service_healthy
-      api:
+      backend:
         condition: service_started
+    volumes:
+      - ./services/data:/app
 
   # News-automation layer. Polls economic-calendar + headline feeds on a
   # schedule, normalizes, dedupes, and upserts into the trading DB's NewsEvent
@@ -185,10 +268,10 @@ services:
       - N8N_HOST=${N8N_HOST:-localhost}
       - N8N_PORT=5678
       - WEBHOOK_URL=${N8N_WEBHOOK_URL:-http://localhost:5678/}
-      # Workflow B reads these. The AI service now runs in this compose network,
-      # so reach it by service name instead of host.docker.internal.
+      # Workflow B reads these. The /analyze/* routes moved into the Python
+      # backend (services/ai was folded in), so reach it by that service name.
       - ALPHA_VANTAGE_API_KEY=${ALPHA_VANTAGE_API_KEY:-}
-      - NEWS_SUMMARY_URL=http://ai:8000/analyze/news-summary
+      - NEWS_SUMMARY_URL=http://backend:8000/analyze/news-summary
       # The workflows read $env.* in expressions; n8n denies that by default.
       - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
     volumes:
@@ -196,7 +279,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ai:
+      backend:
         condition: service_started
 
   # MT5 bridge (Plan 08) — runs the Exness/MT5 terminal under Wine so the whole
@@ -228,3 +311,6 @@ volumes:
   postgres-data:
   redis-data:
   n8n-data:
+  # Dashboard-pasted AI keys and Telegram credentials. Kept on a volume so they
+  # survive a rebuild without ever being baked into the image.
+  backend-state:

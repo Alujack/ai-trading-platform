@@ -16,6 +16,8 @@ from .config import (
     get_bot_token,
     get_chat_id,
     get_webhook_secret,
+)
+from .config import (
     is_configured as cfg_configured,
 )
 
@@ -57,7 +59,7 @@ async def _call(method: str, payload: dict[str, Any]) -> Any | None:
         async with httpx.AsyncClient(timeout=_TIMEOUT_S) as client:
             res = await client.post(f"{API_BASE}/bot{token}/{method}", json=payload)
             body = res.json()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.error("[telegram] %s error: %s", method, exc)
         return None
     if not body.get("ok"):
@@ -123,7 +125,7 @@ async def register_webhook(public_url: str) -> dict[str, Any]:
         async with httpx.AsyncClient(timeout=_TIMEOUT_S) as client:
             res = await client.post(f"{API_BASE}/bot{token}/setWebhook", json=payload)
             body = res.json()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return {"ok": False, "url": url, "error": str(exc)}
     if not body.get("ok"):
         return {"ok": False, "url": url, "error": body.get("description") or f"http {res.status_code}"}

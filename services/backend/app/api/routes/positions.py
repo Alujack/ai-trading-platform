@@ -11,7 +11,7 @@ from typing import Any
 from fastapi import APIRouter
 from sqlalchemy import select
 
-from ...core.serialization import iso, num
+from ...core.serialization import iso, js_number, num
 from ...core.settings import get_settings
 from ...db.enums import TradeStatus
 from ...db.models import Candle, Trade
@@ -26,15 +26,18 @@ def _pnl(direction: str, entry: float, mark: float, size: float) -> float:
     return sign * (mark - entry) * size
 
 
-def _round2(value: float) -> float:
-    return round(value, 2)
+def _round2(value: float) -> float | int | None:
+    """Round to cents, then render the way a JavaScript number would."""
+    return js_number(round(value, 2))
 
 
 @router.get("/api/positions")
 async def list_positions(session: Db) -> dict[str, Any]:
     cfg = get_settings()
     base_balance = cfg.paper_account_balance
-    max_open = cfg.paper_max_open_trades
+    # Display-only: mirrors positions.routes.ts, which falls back to 5 here
+    # even though the risk-engine cap falls back to 1.
+    max_open = cfg.paper_max_open_trades_display
 
     open_trades = (
         (
@@ -78,11 +81,11 @@ async def list_positions(session: Db) -> dict[str, Any]:
                 "id": t.id,
                 "symbol": t.signal.symbol,
                 "direction": t.signal.direction.value,
-                "size": size,
-                "entry": entry,
-                "mark": mark,
-                "stopLoss": num(t.signal.stopLoss),
-                "takeProfit": num(t.signal.takeProfit),
+                "size": js_number(size),
+                "entry": js_number(entry),
+                "mark": js_number(mark),
+                "stopLoss": js_number(num(t.signal.stopLoss)),
+                "takeProfit": js_number(num(t.signal.takeProfit)),
                 "pnl": _round2(upnl),
                 "openedAt": iso(t.openedAt),
             }
@@ -108,7 +111,7 @@ async def list_positions(session: Db) -> dict[str, Any]:
 
     return {
         "account": {
-            "baseBalance": base_balance,
+            "baseBalance": js_number(base_balance),
             "equity": _round2(equity),
             "unrealized": _round2(unrealized),
             "realizedTotal": _round2(realized_total),

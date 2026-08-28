@@ -9,6 +9,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from ...core.serialization import js_number
+
 
 @dataclass(slots=True)
 class TradeStats:
@@ -26,7 +28,7 @@ def _round2(value: float) -> float:
     return math.floor(value * 100 + 0.5) / 100 if value >= 0 else -(math.floor(-value * 100 + 0.5) / 100)
 
 
-def compute_performance(trades: list[TradeStats]) -> dict[str, float]:
+def compute_performance(trades: list[TradeStats]) -> dict[str, float | int | None]:
     """Aggregate closed trades into the dashboard's performance payload.
 
     Expectancy = average P&L per trade (the real edge metric — what win rate
@@ -76,10 +78,10 @@ def compute_performance(trades: list[TradeStats]) -> dict[str, float]:
 
     return {
         "totalTrades": count,
-        "winRate": _round2((wins / count) * 100) if count else 0,
-        "totalPnL": _round2(total_pnl),
-        "maxDrawdown": _round2(max_drawdown),
-        "averageRR": _round2(rr_sum / rr_count) if rr_count else 0,
-        "expectancy": _round2(total_pnl / count) if count else 0,
-        "profitFactor": profit_factor,
+        "winRate": js_number(_round2((wins / count) * 100) if count else 0),
+        "totalPnL": js_number(_round2(total_pnl)),
+        "maxDrawdown": js_number(_round2(max_drawdown)),
+        "averageRR": js_number(_round2(rr_sum / rr_count) if rr_count else 0),
+        "expectancy": js_number(_round2(total_pnl / count) if count else 0),
+        "profitFactor": js_number(profit_factor),
     }

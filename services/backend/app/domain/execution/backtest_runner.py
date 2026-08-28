@@ -11,11 +11,12 @@ the job lives in the same event loop as the rest of the backend.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import re
 import shutil
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -106,10 +107,15 @@ def get_job_status() -> dict[str, Any]:
 
 
 async def _run(py: str, args: list[str], directory: Path) -> None:
-    """Drive one child process, streaming its output into the job tail."""
-    global _job
+    """Drive one child process, streaming its output into the job tail.
+
+    Mutates the module-level `_job` in place rather than rebinding it, so a
+    concurrent `get_job_status()` always sees a consistent object.
+    """
     timeout_s = get_settings().backtest_timeout_s
     try:
+        # argv is assembled by `build_args` from schema-validated enum values —
+        # never from raw request text — and no shell is involved.
         process = await asyncio.create_subprocess_exec(
             py,
             *args,
@@ -118,7 +124,7 @@ async def _run(py: str, args: list[str], directory: Path) -> None:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _job.running = False
         _job.finishedAt = iso(utcnow())
         _job.ok = False
@@ -129,9 +135,11 @@ async def _run(py: str, args: list[str], directory: Path) -> None:
 
     async def drain() -> None:
         nonlocal buf
-        assert process.stdout is not None
+        stdout = process.stdout
+        if stdout is None:  # PIPE was requested, so this cannot happen — be safe anyway
+            return
         while True:
-            chunk = await process.stdout.read(4096)
+            chunk = await stdout.read(4096)
             if not chunk:
                 break
             buf = (buf + chunk.decode("utf-8", "replace"))[-TAIL_MAX:]
@@ -142,10 +150,8 @@ async def _run(py: str, args: list[str], directory: Path) -> None:
             await asyncio.gather(drain(), process.wait())
     except TimeoutError:
         _job.error = f"timed out after {timeout_s:.0f}s"
-        try:
+        with contextlib.suppress(ProcessLookupError):
             process.kill()
-        except ProcessLookupError:
-            pass
         await process.wait()
 
     code = process.returncode

@@ -1,9 +1,77 @@
 # Next.js + Python Consolidation Plan
 
-**Status:** Proposed — planning only  
-**Date:** 2026-08-28  
+**Status:** Implemented through Phase 7. Phase 8 staged behind a rollback profile; Phase 9 not started.  
+**Date:** 2026-08-28 (planned), 2026-08-28 (implemented)  
 **Decision owner:** Platform owner  
 **Applies to:** `apps/web`, `apps/api`, `services/ai`, `services/data`, `services/mt5bridge`, Docker Compose, PostgreSQL, and Redis
+
+## Implementation status
+
+| Phase | Status | Where |
+|---|---|---|
+| 0 — Baseline and freeze | Done | `services/backend/scripts/parity_check.py`, translated test suite |
+| 1 — FastAPI foundation | Done | `services/backend/`, `migrations/`, `/health/live`, `/health/ready` |
+| 2 — Read-only API parity | Done | 32/32 contract cases match against the live database |
+| 3 — AI and market context | Done | `app/integrations/ai/` in-process; `/analyze/*` kept for n8n |
+| 4 — Backtests, config, realtime | Done | `backtest_runner.py` (asyncio subprocess), config routes, SSE |
+| 5 — Telegram and broker | Done | AES-GCM verified bidirectionally against Node; webhook auth |
+| 6 — Risk gate and execution | Done | full paper open→manage→close→journal cycle green |
+| 7 — Next.js BFF cutover | Done | `apps/web/app/api/[...path]/route.ts`, same-origin client |
+| 8 — Remove Express and Prisma | **Staged, not executed** | see below |
+| 9 — Optional n8n removal | Not started | — |
+
+### Why Phase 8 is staged rather than executed
+
+The plan's own deployment sequence ends with "remove Express only after rollback
+is no longer needed", and the exit gate requires a completed paper-trading soak
+plus a rehearsed rollback. Neither can be compressed into the implementation
+window, so instead of deleting the Express code:
+
+- `docker compose up` now starts **only** Next.js + Python. Express is behind the
+  `legacy` profile and starts nothing by default.
+- Its container has `ENABLE_PAPER_TRADING`/`WEEKLY_REVIEW`/`DAILY_BRIEFING=false`,
+  so even when started it owns no schedulers.
+- `services/ai` is superseded by `services/backend/app/integrations/ai` and is no
+  longer in the Compose graph.
+
+Deleting `apps/api`, dropping the Node/Prisma dependencies and archiving the
+Prisma migration history are the remaining Phase-8 steps. They should be done
+after the soak in §4 of `docs/runbooks/11-cutover-and-rollback.md`, on an
+archival tag.
+
+### Verified during implementation
+
+- **Contract parity:** 32/32 cases match Express on the live database (318k
+  candles), including decimal-string fields, timestamps, pagination, empty
+  states, 404s and validation 400s. One intentional difference: Zod and Pydantic
+  word individual validation messages differently inside `details.fieldErrors`;
+  status, the `error` key and the `details` structure all match.
+- **Schema fidelity:** `alembic revision --autogenerate` produces an empty diff —
+  every table, column, type, index, unique constraint and foreign key (including
+  `ON UPDATE CASCADE ON DELETE RESTRICT`) matches. Pinned by
+  `tests/test_schema_drift.py`.
+- **Non-destructive adoption:** the baseline revision stamped the production
+  database with all 318,215 candles untouched.
+- **Credential compatibility:** ciphertext written by Node decrypts in Python and
+  vice versa, checked against real `node:crypto` output.
+- **Full paper cycle:** gate → risk → AUTO open → monitor → TP/SL close → journal
+  with grade and R-multiple, plus OFF/CONFIRM gating, idempotency, cooldown and
+  RR rejection.
+- **Shadow mode is read-only:** an early implementation dual-wrote `RiskLog`,
+  violating invariant 3. Fixed, and pinned by `tests/test_shadow_mode.py`.
+
+### Two defects the parity harness caught
+
+Recorded because both would have been silent in production:
+
+1. **`maxOpenTrades` default.** `PAPER_MAX_OPEN_TRADES` has *two different*
+   fallbacks in the Express source — `1` in `config/defaults.ts` (the risk
+   concurrency cap) and `5` in `positions.routes.ts` (a display field). The port
+   initially used 5 for both, which would have loosened the concurrency cap five-fold.
+   Both fallbacks are now reproduced and pinned by a test.
+2. **Numeric wire shape.** `JSON.stringify` renders an integral JS number as
+   `100`, Python as `100.0`. Every computed numeric response field now goes
+   through `js_number()`.
 
 ## 1. Executive decision
 

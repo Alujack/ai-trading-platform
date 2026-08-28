@@ -58,7 +58,7 @@ class ExnessBroker:
                     json=body,
                     headers={"content-type": "application/json", "x-bridge-token": self._token},
                 )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise BrokerError(f"mt5 bridge unreachable: {exc}") from exc
         if res.status_code >= 400:
             raise BrokerError(

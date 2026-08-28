@@ -1,6 +1,8 @@
 """Performance metrics — port of `routes/performance.routes.ts`."""
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter
 from sqlalchemy import select
 
@@ -14,7 +16,7 @@ router = APIRouter(tags=["trading"])
 
 
 @router.get("/api/performance")
-async def get_performance(session: Db) -> dict[str, float]:
+async def get_performance(session: Db) -> dict[str, Any]:
     trades = (
         (
             await session.execute(

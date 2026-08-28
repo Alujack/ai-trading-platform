@@ -80,14 +80,9 @@ async def is_flag_enabled(session: AsyncSession, key: str) -> bool:
     """Is a flag on? Never raises — an outage can only turn a feature OFF."""
     try:
         return (await get_flag(session, key)).enabled
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.error("[flags] resolve failed: %s", exc)
         return _env_default(key) or False
-
-
-async def is_raw_feed_enabled(session: AsyncSession) -> bool:
-    """Convenience for the hot path in the signal gate."""
-    return await is_flag_enabled(session, RAW_FEED_FLAG)
 
 
 async def set_flag(session: AsyncSession, actor: str, key: str, enabled: bool) -> FlagState:

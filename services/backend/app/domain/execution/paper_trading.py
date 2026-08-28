@@ -8,6 +8,7 @@ must be journaled with reasoning).
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -50,7 +51,7 @@ async def fetch_current_price(
     if cached:
         try:
             value = float(cached)
-            if value > 0:
+            if math.isfinite(value) and value > 0:
                 return value
         except ValueError:
             pass  # fall through to the candle
@@ -65,7 +66,7 @@ async def fetch_current_price(
     if close is None:
         return None
     value = float(close)
-    return value if value == value else None
+    return value if math.isfinite(value) else None
 
 
 @dataclass(slots=True)
@@ -92,7 +93,7 @@ async def open_paper_trade(session: AsyncSession, signal_id: str) -> OpenResult:
 
     entry = num_or_nan(signal.entryPrice)
     stop = num_or_nan(signal.stopLoss)
-    if entry != entry or stop != stop or entry == stop:
+    if not math.isfinite(entry) or not math.isfinite(stop) or entry == stop:
         return OpenResult("skipped", "invalid_levels")
 
     account = _read_account_state()
@@ -117,52 +118,6 @@ async def open_paper_trade(session: AsyncSession, signal_id: str) -> OpenResult:
     await session.commit()
 
     return OpenResult("opened", tradeId=trade.id)
-
-
-@dataclass(slots=True)
-class SweepSummary:
-    scanned: int
-    opened: int
-    skipped: int
-
-
-async def sweep_pending_signals(session: AsyncSession) -> SweepSummary:
-    """Open any PENDING signal that has no trade yet (paper path)."""
-    pending = (
-        (
-            await session.execute(
-                select(Signal)
-                .where(Signal.status == SignalStatus.PENDING, ~Signal.trades.any())
-                .order_by(Signal.createdAt.asc())
-                .limit(50)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    opened = 0
-    skipped = 0
-    for sig in pending:
-        result = await open_paper_trade(session, sig.id)
-        if result.status == "opened":
-            opened += 1
-            log.info(
-                "[paperTrading] opened trade %s for signal %s %s/%s",
-                result.tradeId,
-                sig.id,
-                sig.symbol,
-                sig.timeframe,
-            )
-        else:
-            skipped += 1
-            log.info(
-                '[paperTrading] skip signal %s (%s/%s) reason="%s"',
-                sig.id,
-                sig.symbol,
-                sig.timeframe,
-                result.reason or "",
-            )
-    return SweepSummary(scanned=len(pending), opened=opened, skipped=skipped)
 
 
 @dataclass(slots=True)
@@ -234,7 +189,7 @@ async def _review_closed_trade(
             }
         )
         return await ai.trade_review(request)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.error("[paperTrading] trade-review unavailable: %s", exc)
         return None
 
@@ -291,7 +246,7 @@ async def monitor_open_trades(session: AsyncSession) -> MonitorSummary:
         # R-multiple (net P&L ÷ risk) and a deterministic outcome — both computed
         # here so expectancy tracking works even if the AI review is unavailable.
         risk_amount = num_or_nan(trade.riskAmount)
-        r_multiple = pnl / risk_amount if risk_amount == risk_amount and risk_amount > 0 else 0.0
+        r_multiple = pnl / risk_amount if math.isfinite(risk_amount) and risk_amount > 0 else 0.0
         outcome = "WIN" if pnl > 0 else "LOSS" if pnl < 0 else "BREAKEVEN"
         closed_at = naive_utcnow()
 
@@ -347,8 +302,8 @@ async def monitor_open_trades(session: AsyncSession) -> MonitorSummary:
 
 async def run_weekly_journal_review(session: AsyncSession) -> dict[str, Any]:
     """Weekly journal review: patterns, critique and (human-approved) config proposals."""
-    from .review_agent import collect_tunables, process_review_proposals
     from ...integrations.ai.schemas import JournalReviewRequest
+    from .review_agent import collect_tunables, process_review_proposals
 
     cutoff = naive_utcnow() - timedelta(days=WEEKLY_REVIEW_WINDOW_DAYS)
     trades = (
@@ -374,7 +329,7 @@ async def run_weekly_journal_review(session: AsyncSession) -> dict[str, Any]:
     tunables: list[dict[str, Any]] = []
     try:
         tunables = await collect_tunables(session)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.warning("[paperTrading] weekly review tunables unavailable: %s", exc)
 
     pnls = [float(t.profitLoss) if t.profitLoss is not None else 0.0 for t in trades]
@@ -409,7 +364,7 @@ async def run_weekly_journal_review(session: AsyncSession) -> dict[str, Any]:
                 {"trades": payload_trades, "tunables": tunables, "stats": stats}
             )
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.error("[paperTrading] weekly review unreachable: %s", exc)
         return {"status": "error", "reason": f"unreachable: {exc}", "tradeCount": len(trades)}
 
@@ -434,7 +389,7 @@ async def run_weekly_journal_review(session: AsyncSession) -> dict[str, Any]:
                 result["rejected"],
                 result["alerted"],
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.error("[paperTrading] weekly review proposal processing failed: %s", exc)
 
     return {

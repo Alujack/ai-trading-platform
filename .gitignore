@@ -72,3 +72,8 @@ redis-data/
 # Misc
 .turbo/
 .cache/
+
+# Local backups and stray env variants — these can carry live secrets.
+*.bak
+.env.*
+!.env.example

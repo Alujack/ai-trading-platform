@@ -6,7 +6,7 @@ if either changes its wording, these tests are the tripwire.
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 import pytest

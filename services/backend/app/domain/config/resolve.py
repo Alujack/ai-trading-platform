@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from dataclasses import dataclass, replace
 from decimal import Decimal
 
@@ -46,7 +47,7 @@ def _num(value: object) -> float | None:
             f = float(str(value))
         except (TypeError, ValueError):
             return None
-    return f if f == f and f not in (float("inf"), float("-inf")) else None
+    return f if math.isfinite(f) else None
 
 
 async def _risk_rows(session: AsyncSession) -> list[dict[str, object]]:

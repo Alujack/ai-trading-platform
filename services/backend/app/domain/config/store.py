@@ -8,6 +8,7 @@ audited identically.
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -40,7 +41,7 @@ def validate_risk_fields(fields: dict[str, Any]) -> str | None:
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             return f"{key} must be a number"
         num = float(value)
-        if num != num or num in (float("inf"), float("-inf")):
+        if not math.isfinite(num):
             return f"{key} must be a number"
         if num < bound.min or num > bound.max:
             return f"{key} must be between {_fmt(bound.min)} and {_fmt(bound.max)}"
@@ -92,7 +93,7 @@ async def audit(
             )
         )
         await session.flush()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.error("[config] audit write failed: %s", exc)
 
 

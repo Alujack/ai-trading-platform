@@ -15,7 +15,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...core.serialization import iso, num_or_none
+from ...core.serialization import iso, js_number, num_or_none
 from ...db.enums import Impact, TradeStatus
 from ...db.models import NewsEvent, Trade
 from ...db.redis_client import cache_set
@@ -39,14 +39,14 @@ async def collect_market_context(session: AsyncSession) -> list[dict[str, Any]]:
                 out.append(
                     await get_market_context(session, pair["symbol"], pair["timeframe"])
                 )
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 log.warning(
                     "[dailyBriefing] market context unavailable for %s/%s: %s",
                     pair["symbol"],
                     pair["timeframe"],
                     exc,
                 )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.warning("[dailyBriefing] market context skipped: %s", exc)
     return out
 
@@ -106,7 +106,7 @@ async def run_daily_briefing(session: AsyncSession) -> dict[str, Any]:
                 "direction": t.signal.direction.value,
                 "outcome": getattr(journal, "outcome", None),
                 "grade": getattr(journal, "grade", None),
-                "rMultiple": (
+                "rMultiple": js_number(
                     float(journal.rMultiple)
                     if journal is not None and journal.rMultiple is not None
                     else None
@@ -145,7 +145,7 @@ async def run_daily_briefing(session: AsyncSession) -> dict[str, Any]:
         "generatedAt": iso(now),
         "performance": {
             **perf,
-            "rExpectancy": round(r_expectancy, 3),
+            "rExpectancy": js_number(round(r_expectancy, 3)),
             "gradedTrades": len(rmults),
         },
         "gradeDistribution": grade_distribution,

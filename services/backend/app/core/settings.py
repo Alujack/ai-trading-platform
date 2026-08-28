@@ -7,6 +7,7 @@ the migration changes the runtime, not the operator's `.env`.
 """
 from __future__ import annotations
 
+import contextlib
 import os
 from functools import lru_cache
 
@@ -24,7 +25,9 @@ class Settings(BaseSettings):
     """Environment-driven configuration for `services/backend`."""
 
     # ---- Server ----
-    backend_host: str = Field(default="0.0.0.0")
+    # Binds all interfaces because the service runs in a container and is
+    # reached by service name; the Next.js BFF is the only public entrypoint.
+    backend_host: str = Field(default="0.0.0.0")  # noqa: S104
     backend_port: int = Field(default=8000)
     log_level: str = Field(default="info")
     node_env: str = Field(default="development")
@@ -51,7 +54,16 @@ class Settings(BaseSettings):
     paper_account_balance: float = Field(default=10_000.0)
     paper_peak_balance: float = Field(default=10_000.0)
     paper_risk_percent: float = Field(default=1.0)
-    paper_max_open_trades: int = Field(default=5)
+    # PAPER_MAX_OPEN_TRADES has TWO different fallbacks in the Express original,
+    # and both are preserved because they mean different things:
+    #   config/defaults.ts    -> 1  (the risk-engine concurrency cap: the
+    #                                "one trade at a time" sticky rule)
+    #   positions.routes.ts   -> 5  (the dashboard's `maxOpen` display only)
+    # Using 5 for the risk cap would silently loosen concurrency 5x, so the
+    # authoritative default here is 1 and the display default lives below.
+    paper_max_open_trades: int = Field(default=1)
+    #: Display-only fallback for the positions endpoint's `maxOpen` field.
+    paper_max_open_trades_display: int = Field(default=5)
     max_trades_per_day: int = Field(default=1)
     daily_profit_target_pct: float = Field(default=2.0)
 
@@ -141,4 +153,13 @@ def get_settings() -> Settings:
     ):
         explicit = _truthy(os.environ.get(env_key))
         object.__setattr__(s, name, True if explicit is None else explicit)
+
+    # Both PAPER_MAX_OPEN_TRADES readings share the env var; only their
+    # fallbacks differ, so an explicit value applies to each.
+    raw_max_open = os.environ.get("PAPER_MAX_OPEN_TRADES")
+    if raw_max_open and raw_max_open.strip():
+        # A malformed value already failed validation on `paper_max_open_trades`
+        # above, so reaching here means it parses; the guard is belt-and-braces.
+        with contextlib.suppress(ValueError):
+            object.__setattr__(s, "paper_max_open_trades_display", int(float(raw_max_open)))
     return s

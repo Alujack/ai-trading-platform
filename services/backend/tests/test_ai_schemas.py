@@ -1,10 +1,16 @@
-"""Pydantic schema validation tests for the analyze endpoints."""
+"""Pydantic schema validation tests for the analyze endpoints.
+
+Carried over from `services/ai/tests/test_schemas.py` when that service was
+folded into this backend (plan 11, Phase 3). The schemas define the wire contract
+of `/analyze/*` and of the in-process `integrations.ai.client` calls, so their
+validation rules are worth pinning here rather than losing with the old tree.
+"""
 from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
 
-from src.schemas import (
+from app.integrations.ai.schemas import (
     JournalReviewRequest,
     JournalReviewResponse,
     MarketContextRequest,

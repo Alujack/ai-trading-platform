@@ -11,7 +11,7 @@ from fastapi import APIRouter, Response
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 
-from ...core.serialization import iso
+from ...core.serialization import iso, js_number
 from ...db.models import BacktestRun
 from ...domain.execution.backtest_runner import get_job_status, start_backtest
 from ..dependencies import Db, Timeframe
@@ -68,8 +68,8 @@ async def list_backtests(session: Db) -> dict[str, Any]:
             {
                 "id": r.id,
                 "label": r.label,
-                "startingBalance": float(r.startingBalance),
-                "riskPct": float(r.riskPct),
+                "startingBalance": js_number(float(r.startingBalance)),
+                "riskPct": js_number(float(r.riskPct)),
                 "costsApplied": r.costsApplied,
                 "config": r.config,
                 "results": r.results,
@@ -92,8 +92,8 @@ async def get_backtest(run_id: str, session: Db, response: Response) -> dict[str
     return {
         "id": run.id,
         "label": run.label,
-        "startingBalance": float(run.startingBalance),
-        "riskPct": float(run.riskPct),
+        "startingBalance": js_number(float(run.startingBalance)),
+        "riskPct": js_number(float(run.riskPct)),
         "costsApplied": run.costsApplied,
         "config": run.config,
         "results": run.results,

@@ -314,7 +314,10 @@ class TestSse:
             def pubsub(self):
                 return BrokenPubSub()
 
-        monkeypatch.setattr(realtime, "redis_client", lambda: BrokenClient())
+        def broken_client() -> BrokenClient:
+            return BrokenClient()
+
+        monkeypatch.setattr(realtime, "redis_client", broken_client)
 
         class StubRequest:
             def __init__(self) -> None:

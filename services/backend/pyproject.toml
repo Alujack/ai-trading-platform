@@ -32,6 +32,66 @@ dev = [
 line-length = 100
 target-version = "py311"
 
+[tool.ruff.lint]
+# Ruff's defaults plus the rule families that catch real problems here:
+# bug-prone patterns, unused code, security smells, simplifications, and the
+# blind-except rule (so every deliberate broad catch has to justify itself with a
+# `# noqa: BLE001` at the site).
+select = [
+    "E4", "E7", "E9", "F", "I", "B", "S", "SIM", "UP", "RUF", "PIE",
+    "PLE", "PLW", "PLC",
+]
+# NOT selected: BLE (blind-except). Degrading gracefully around a failed
+# dependency is this service's design — a Redis hiccup, an unreachable AI
+# provider or a Telegram outage must never propagate into a trade decision — so
+# broad `except Exception` is the correct construct at those boundaries and each
+# one is commented. Flagging all ~50 of them would mean ~50 `noqa` markers that
+# add noise without adding safety.
+ignore = [
+    # The Prisma-created columns are `TIMESTAMP(3)` WITHOUT time zone and hold
+    # naive UTC. Constructing naive datetimes is therefore correct, and
+    # `app/jobs/clock.py` is the single seam that converts between the two forms.
+    "DTZ",
+    # `timezone.utc` reads more explicitly than the 3.11 `datetime.UTC` alias and
+    # matches the rest of the repo's Python services.
+    "UP017",
+    # Best-effort paths (cache writes, Telegram sends, audit rows, pub/sub
+    # teardown) deliberately swallow failures so a degraded dependency can never
+    # break a trade decision. Each site carries a comment saying so.
+    "S110",
+    # Module-level singletons (engine, Redis client, broker, scheduler, backtest
+    # job) mirror the `globalThis` caching the TypeScript original used, and are
+    # the intended lifecycle for a single-process service.
+    "PLW0603",
+    # `float | int` is meaningful in this codebase: `js_number` narrows integral
+    # floats to int so JSON bodies match the Express/JS output byte-for-byte.
+    "PYI041",
+    # The ► → · — characters come from the ported comments and Telegram message
+    # bodies, where they are intentional.
+    "RUF001", "RUF002", "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests assert on broad failures, use fixture-shaped signatures, and re-import
+# inside cases to keep each one self-contained.
+"tests/*" = ["S101", "PLC0415", "B017"]
+# FastAPI's dependency/parameter idiom is `= Query(...)` / `= Depends(...)` in
+# the signature; B008 does not model it. Deferred imports inside functions break
+# real circular dependencies between the gate, the execution decider and the
+# Telegram approval flow.
+"app/api/routes/*" = ["B008", "PLC0415"]
+"app/domain/**" = ["PLC0415"]
+"app/integrations/telegram/approvals.py" = ["PLC0415"]
+"app/jobs/scheduler.py" = ["PLC0415"]
+"app/main.py" = ["PLC0415"]
+# The AI provider modules are a vendored copy of services/ai/src; keep them
+# byte-comparable with their origin rather than restyled.
+"app/integrations/ai/providers.py" = ["ALL"]
+"app/integrations/ai/schemas.py" = ["ALL"]
+"app/integrations/ai/prompts.py" = ["ALL"]
+"app/integrations/ai/settings.py" = ["ALL"]
+"app/integrations/ai/llm.py" = ["ALL"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

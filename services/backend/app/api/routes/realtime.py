@@ -7,7 +7,7 @@ comment heartbeat every 25s, and the no-buffering headers.
 from __future__ import annotations
 
 import asyncio
-import json
+import contextlib
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -42,7 +42,7 @@ async def _event_stream(request: Request) -> AsyncIterator[bytes]:
     try:
         await pubsub.subscribe(RT_CHANNEL)
         subscribed = True
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.error("[rt] subscribe failed: %s", exc)
         yield b'event: error\ndata: {"ok":false}\n\n'
 
@@ -57,7 +57,7 @@ async def _event_stream(request: Request) -> AsyncIterator[bytes]:
                     message = await pubsub.get_message(
                         ignore_subscribe_messages=True, timeout=1.0
                     )
-                except Exception as exc:  # noqa: BLE001
+                except Exception as exc:
                     # A Redis hiccup degrades realtime, it must not kill the stream.
                     log.warning("[rt] read failed: %s", exc)
                     await asyncio.sleep(1.0)
@@ -75,15 +75,13 @@ async def _event_stream(request: Request) -> AsyncIterator[bytes]:
                 last_beat = now
                 yield b": ping\n\n"
     finally:
+        # Teardown is best-effort: the client is already gone, so a Redis error
+        # here has nothing left to break.
         if subscribed:
-            try:
+            with contextlib.suppress(Exception):
                 await pubsub.unsubscribe(RT_CHANNEL)
-            except Exception:  # noqa: BLE001
-                pass
-        try:
+        with contextlib.suppress(Exception):
             await pubsub.aclose()
-        except Exception:  # noqa: BLE001
-            pass
 
 
 @router.get("/api/stream")
@@ -101,7 +99,7 @@ async def rt_notify(request: Request, response: Response) -> dict[str, Any]:
     """
     try:
         body = await request.json()
-    except Exception:  # noqa: BLE001
+    except Exception:
         body = {}
     if not isinstance(body, dict):
         body = {}

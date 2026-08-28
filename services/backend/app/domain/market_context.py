@@ -144,7 +144,7 @@ async def get_market_context(
         result = await ai.market_context(request)
     except HttpError:
         raise
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         # Fail closed with the same 503 the Express proxy produced when the AI
         # hop was unavailable, so the dashboard's error copy still applies.
         raise HttpError(503, f"AI analysis unavailable: {exc}") from exc

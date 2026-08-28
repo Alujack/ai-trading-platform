@@ -27,10 +27,23 @@ config.set_main_option("sqlalchemy.url", get_settings().sqlalchemy_url)
 target_metadata = Base.metadata
 
 
+#: Tables Alembic must never manage. `_prisma_migrations` is the archive of how
+#: the schema got here (plan Phase 8 keeps it, rather than dropping the record),
+#: `alembic_version` is Alembic's own bookkeeping, and n8n owns its tables in the
+#: same cluster.
+IGNORED_TABLES = frozenset({"_prisma_migrations", "alembic_version"})
+
+
 def include_object(obj, name, type_, reflected, compare_to) -> bool:
-    """Keep n8n's own tables (same cluster, separate database in Compose) out of scope."""
-    if type_ == "table" and name and name.startswith("n8n"):
-        return False
+    """Scope autogenerate to the trading schema this backend owns.
+
+    With this in place `alembic revision --autogenerate` returns an EMPTY diff
+    against a correctly-migrated database — which is what makes it usable as a
+    drift tripwire (see tests/test_schema_drift.py).
+    """
+    if type_ == "table" and name:
+        if name in IGNORED_TABLES or name.startswith("n8n"):
+            return False
     return True
 
 

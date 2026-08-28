@@ -12,11 +12,11 @@ before ownership changes hands.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Literal
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,7 +28,7 @@ from ...db.enums import Direction, SignalStatus, TradeStatus
 from ...db.models import Candle, Indicator, NewsEvent, Signal, Trade
 from ...integrations.ai import client as ai
 from ...integrations.ai.schemas import ValidateSignalRequest
-from ...jobs.clock import naive_utcnow, start_of_utc_day, utcnow
+from ...jobs.clock import naive_utcnow, start_of_utc_day
 from ..config.resolve import resolve_risk_config
 from ..risk.engine import (
     NewsLite,
@@ -291,7 +291,7 @@ async def _run_gate(session: AsyncSession, candidate: SignalCandidate) -> GateRe
 
     try:
         ai_result = await ai.validate_signal(ai_request)
-    except Exception as exc:  # noqa: BLE001 — AI outage must fail closed
+    except Exception as exc:
         # Same reason prefix the Express gate produced, so `classify_gate_outcome`
         # still tags this `ai_unreachable`.
         return GateResult(status="skipped", reason=f"ai_service_unreachable: {exc}")
@@ -434,7 +434,7 @@ async def _run_gate(session: AsyncSession, candidate: SignalCandidate) -> GateRe
             decision.action,
             f' reason="{decision.reason}"' if decision.reason else "",
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.error("[gate] decide_execution failed: %s", exc)
 
     return GateResult(status="generated", signalId=signal.id, score=ai_result.score)

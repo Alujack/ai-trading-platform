@@ -2,14 +2,19 @@
   "name": "ai-trading-platform",
   "version": "0.1.0",
   "private": true,
-  "description": "AI trading intelligence platform — monorepo",
+  "description": "AI trading intelligence platform \u2014 Next.js + Python monorepo",
   "workspaces": [
     "apps/*",
     "packages/*"
   ],
   "scripts": {
     "dev:web": "npm run dev --workspace=@ai-trading/web",
+    "dev:backend": "cd services/backend && .venv/bin/uvicorn app.main:app --reload --port ${BACKEND_PORT:-8000}",
     "dev:api": "npm run dev --workspace=@ai-trading/api",
+    "test:backend": "cd services/backend && .venv/bin/python -m pytest tests/ -q",
+    "lint:backend": "cd services/backend && .venv/bin/ruff check app tests",
+    "parity": "services/backend/.venv/bin/python services/backend/scripts/parity_check.py",
+    "migrate": "cd services/backend && .venv/bin/alembic upgrade head",
     "build": "npm run build --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",

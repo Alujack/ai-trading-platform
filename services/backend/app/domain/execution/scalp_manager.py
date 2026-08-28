@@ -80,7 +80,7 @@ async def run_scalp_management_tick(session: AsyncSession) -> ScalpManageSummary
     broker = get_broker()
     try:
         positions = await broker.get_positions()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.error("[scalpManager] get_positions failed: %s", exc)
         return ScalpManageSummary(
             managed=len(trades), closed=0, held=len(trades), gone=0
@@ -128,7 +128,7 @@ async def run_scalp_management_tick(session: AsyncSession) -> ScalpManageSummary
 
         try:
             result = await broker.close_position(ticket)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.error("[scalpManager] close failed ticket=%s: %s", ticket, exc)
             held += 1
             continue

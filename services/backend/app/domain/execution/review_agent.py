@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -184,7 +185,7 @@ async def _validate_proposal(
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             return False, f"{field} must be a number"
         num = float(value)
-        if num != num or num in (float("inf"), float("-inf")):
+        if not math.isfinite(num):
             return False, f"{field} must be a number"
         if num < bound.min or num > bound.max:
             return False, (

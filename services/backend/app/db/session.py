@@ -10,6 +10,7 @@ Two entry points, deliberately distinct:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -74,14 +75,12 @@ async def get_session() -> AsyncIterator[AsyncSession]:
 
 async def ping_db(timeout_s: float = 1.5) -> bool:
     """`SELECT 1` with a timeout — used by the readiness probe."""
-    import asyncio
-
     try:
         async with asyncio.timeout(timeout_s):
             async with session_factory()() as session:
                 await session.execute(text("SELECT 1"))
         return True
-    except Exception as exc:  # noqa: BLE001 — probe must never raise
+    except Exception as exc:
         log.warning("db ping failed: %s", exc)
         return False
 

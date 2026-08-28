@@ -15,7 +15,7 @@ must not take down the scheduler or the API.
 from __future__ import annotations
 
 import logging
-from typing import Awaitable, Callable
+from collections.abc import Awaitable, Callable
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -72,7 +72,7 @@ async def _guarded(
                 return
             async with session_scope() as session:
                 await body(session)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.error('[%s] %s error="%s"', name, utcnow().isoformat(), exc)
     finally:
         _running.discard(name)
@@ -273,33 +273,17 @@ def scheduler_state() -> dict[str, object]:
     }
 
 
-# --- on-demand runs (manual routes / startup) ---
-
-
-async def run_paper_trading_once() -> None:
-    await _guarded("paperCron", 280, _paper_body)
-
-
-async def run_scalp_management_once() -> None:
-    await _guarded("scalpManager", 14, _scalp_body)
-
-
-async def run_weekly_review_once() -> None:
-    await _guarded("weeklyReviewCron", 3600, _weekly_body)
+# --- on-demand run (startup) ---
 
 
 async def run_daily_briefing_once() -> None:
-    """Recompute the briefing on startup, but don't ping Telegram."""
+    """Recompute the briefing on startup, but don't ping Telegram.
+
+    The only on-demand entry point with a caller (`app/main.py`): a restart gets
+    a fresh summary without spamming the chat.
+    """
 
     async def body(session: AsyncSession) -> None:
         await _daily_body(session, notify=False)
 
     await _guarded("dailyBriefingCron", 900, body)
-
-
-async def send_news_brief_once() -> dict[str, object]:
-    """On-demand: build and push the news brief to Telegram now."""
-    from ..domain.execution.news_brief import send_daily_news_brief
-
-    async with session_scope() as session:
-        return await send_daily_news_brief(session)

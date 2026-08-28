@@ -55,7 +55,7 @@ async def _ai_summary(events: list[NewsEvent]) -> str | None:
         )
         summary = (result.summary or "").strip()
         return summary or None
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.warning("[newsBrief] AI summary unavailable: %s", exc)
         return None
 

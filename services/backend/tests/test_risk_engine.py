@@ -6,20 +6,16 @@ greater-than, and both sides of the high-impact news window.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 import pytest
 
 from app.domain.risk.engine import (
-    GoldRiskContext,
     NewsLite,
-    OpenGoldPosition,
     calculate_position_size,
     check_daily_loss,
     check_max_drawdown,
-    get_gold_adjusted_risk,
     is_news_window,
-    validate_gold_risk,
     validate_risk_reward,
 )
 
@@ -179,65 +175,3 @@ class TestIsNewsWindow:
         exactly_after = [NewsLite("Edge", "HIGH", at("2026-05-17T11:30:00Z"))]
         assert is_news_window(exactly_before, 30, 30, self.NOW).safe is False
         assert is_news_window(exactly_after, 30, 30, self.NOW).safe is False
-
-
-def gold_ctx(**over) -> GoldRiskContext:
-    base = {
-        "openPositions": [],
-        "direction": "LONG",
-        "strategyName": "ict_sweep_mss",
-        "session": "LONDON",
-        "todayPnlPct": 0.0,
-        "sessionConsecutiveLosses": 0,
-        "sessionRiskUsed": 0.0,
-        "accountBalance": 10_000.0,
-    }
-    base.update(over)
-    return GoldRiskContext(**base)  # type: ignore[arg-type]
-
-
-def gold_pos(direction: str = "LONG", risk: float = 50.0) -> OpenGoldPosition:
-    return OpenGoldPosition(
-        symbol="XAUUSD", direction=direction, strategy="s", session="LONDON", riskAmount=risk
-    )
-
-
-class TestValidateGoldRisk:
-    def test_clean_context_passes(self):
-        assert validate_gold_risk(gold_ctx()) == []
-
-    def test_blocks_at_the_concurrency_cap(self):
-        reasons = validate_gold_risk(gold_ctx(openPositions=[gold_pos() for _ in range(3)]))
-        assert any("Gold concurrent limit" in r for r in reasons)
-
-    def test_blocks_directional_stacking(self):
-        reasons = validate_gold_risk(
-            gold_ctx(openPositions=[gold_pos("LONG"), gold_pos("LONG")], direction="LONG")
-        )
-        assert any("Gold direction limit" in r for r in reasons)
-
-    def test_opposite_direction_does_not_trip_the_stacking_guard(self):
-        reasons = validate_gold_risk(
-            gold_ctx(openPositions=[gold_pos("LONG"), gold_pos("LONG")], direction="SHORT")
-        )
-        assert not any("Gold direction limit" in r for r in reasons)
-
-    def test_blocks_after_three_consecutive_session_losses(self):
-        reasons = validate_gold_risk(gold_ctx(sessionConsecutiveLosses=3))
-        assert any("Gold session paused" in r for r in reasons)
-
-    def test_blocks_when_the_session_risk_budget_is_exhausted(self):
-        # Budget is 1% of balance = $100.
-        reasons = validate_gold_risk(gold_ctx(sessionRiskUsed=100.0))
-        assert any("Gold session budget exhausted" in r for r in reasons)
-
-    def test_daily_target_warns_but_never_blocks(self):
-        assert validate_gold_risk(gold_ctx(todayPnlPct=2.0)) == []
-
-
-class TestGetGoldAdjustedRisk:
-    def test_reduces_risk_once_the_daily_target_is_hit(self):
-        assert get_gold_adjusted_risk(1.0, 1.5) == 0.5
-
-    def test_leaves_risk_untouched_below_the_target(self):
-        assert get_gold_adjusted_risk(1.0, 1.4) == 1.0

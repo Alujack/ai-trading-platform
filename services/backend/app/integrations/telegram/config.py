@@ -51,7 +51,7 @@ def _load() -> TelegramOverrides:
         return _cache
     try:
         _cache = json.loads(overrides_path().read_text("utf-8")) or {}
-    except Exception:  # noqa: BLE001 — a missing/corrupt file just means "no overrides"
+    except Exception:
         _cache = {}
     return _cache
 
@@ -63,7 +63,7 @@ def _persist(nxt: TelegramOverrides) -> None:
         path = overrides_path()
         path.write_text(json.dumps(nxt, indent=2), "utf-8")
         os.chmod(path, 0o600)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.error("[telegram] failed to persist overrides: %s", exc)
 
 
@@ -114,7 +114,7 @@ def clear_overrides() -> None:
         overrides_path().unlink()
     except FileNotFoundError:
         pass
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         log.warning("[telegram] could not remove overrides file: %s", exc)
 
 

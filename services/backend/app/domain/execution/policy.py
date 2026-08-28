@@ -281,6 +281,6 @@ async def reconcile_pending_signals(session: AsyncSession) -> ReconcileSummary:
                 decision.action,
                 f' reason="{decision.reason}"' if decision.reason else "",
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             log.error("[reconcile] signal=%s failed: %s", sig.id, exc)
     return summary

@@ -11,6 +11,7 @@ have to survive the language change (plan §7):
 """
 from __future__ import annotations
 
+import math
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from enum import Enum
@@ -64,6 +65,26 @@ def ser(value: Any) -> Any:
     if isinstance(value, (list, tuple, set)):
         return [ser(v) for v in value]
     return value
+
+
+def js_number(value: float | int | None) -> float | int | None:
+    """Render a number the way `JSON.stringify` renders a JavaScript number.
+
+    JS has one numeric type, so an integral value serializes without a decimal
+    point: `Math.round(100)` becomes `100`, never `100.0`. Python would emit
+    `100.0` and drift from the bodies the dashboard was built against, so
+    integral floats are narrowed to `int` here.
+
+    Non-finite values are passed through untouched; the JSON encoder maps them to
+    `null`, which is exactly what `JSON.stringify(Infinity)` does too.
+    """
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return value
+    if not isinstance(value, float) or not math.isfinite(value):
+        return value
+    return int(value) if value.is_integer() else value
 
 
 def num(value: Decimal | int | float | str | None) -> float:

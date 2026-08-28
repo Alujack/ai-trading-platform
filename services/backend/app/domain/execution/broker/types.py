@@ -10,7 +10,7 @@ engine's raw units via `lots_from_units`), because that is what MT5 trades in.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal, Protocol, runtime_checkable
 
 OrderSide = Literal["LONG", "SHORT"]

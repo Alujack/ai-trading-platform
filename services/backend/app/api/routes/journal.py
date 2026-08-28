@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import APIRouter, Query
 from sqlalchemy import select
 
-from ...core.serialization import iso, num_or_none
+from ...core.serialization import iso, js_number, num_or_none
 from ...db.models import Journal
 from ..dependencies import Db
 
@@ -42,7 +42,7 @@ async def list_journal(
             "direction": e.trade.signal.direction.value,
             "strategyName": e.trade.signal.strategyName,
             "status": e.trade.status.value,
-            "profitLoss": num_or_none(e.trade.profitLoss),
+            "profitLoss": js_number(num_or_none(e.trade.profitLoss)),
             "closedAt": None if e.trade.closedAt is None else iso(e.trade.closedAt),
         }
         for e in entries
