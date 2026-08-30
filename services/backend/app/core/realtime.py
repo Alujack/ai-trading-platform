@@ -21,6 +21,7 @@ async def publish_event(
     type_: RtType | str,
     symbol: str | None = None,
     timeframe: str | None = None,
+    candle: dict[str, object] | None = None,
 ) -> None:
     """Fan one event out to every connected SSE client."""
     event: dict[str, object] = {"type": type_, "at": int(time.time() * 1000)}
@@ -28,4 +29,6 @@ async def publish_event(
         event["symbol"] = symbol
     if timeframe is not None:
         event["timeframe"] = timeframe
+    if candle is not None:
+        event["candle"] = candle
     await publish(RT_CHANNEL, json.dumps(event))

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Cambotix Vigil mark</title>
+  <desc id="desc">An open gold C surrounding a precise white V.</desc>
+  <path d="M48 10H23L10 23v18l13 13h25" fill="none" stroke="#E9AD3D" stroke-width="7" stroke-linecap="square" stroke-linejoin="miter"/>
+  <path d="m22 28 10 19 18-30" fill="none" stroke="#F1F3F5" stroke-width="7" stroke-linecap="square" stroke-linejoin="miter"/>
+</svg>

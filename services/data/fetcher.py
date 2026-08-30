@@ -3,8 +3,8 @@
 CANDLE_SOURCE=mt5 routes live fetches through the local MT5 bridge (broker-
 accurate OHLCV straight from the trading account, UTC timestamps, no rate
 limits), falling back to the HTTP providers below when the bridge/terminal is
-down. Otherwise: XAUUSD/EURUSD/BTCUSD via Twelve Data; Alpha Vantage remains
-as a secondary provider option.
+down. Otherwise: XAUUSD/EURUSD via Twelve Data and BTCUSD via Kraken Spot;
+Alpha Vantage remains as a secondary provider option.
 """
 from __future__ import annotations
 
@@ -50,7 +50,9 @@ DAILY = "daily"
 PROVIDER_BY_SYMBOL: dict[str, str] = {
     "XAUUSD": "twelvedata",
     "EURUSD": "twelvedata",
-    "BTCUSD": "twelvedata",
+    # Public, keyless, genuinely 24/7 BTC/USD venue. Keeping this off the
+    # TwelveData quota lets crypto stay live without starving gold.
+    "BTCUSD": "kraken",
 }
 
 # For main.py to enumerate symbols.
@@ -67,12 +69,10 @@ async def fetch_candles(
 ) -> list[CandleRow]:
     """Fetch a batch of OHLCV candles for symbol/timeframe.
 
-    end_date (Twelve Data only) lets callers page backward through history —
+    end_date (provider permitting) lets callers page backward through history —
     bars returned will have timestamps ≤ end_date. Used by backfill scripts.
 
-    output_size (Twelve Data only) is the max bars per request. The live worker
-    uses the small default; backfill passes the free-tier max (5000) to pull far
-    more history per credit.
+    output_size is the requested max bars. Providers clamp it to their own cap.
     """
     # Broker feed first when enabled. end_date paging isn't supported by the
     # bridge, so backfill scripts always take the HTTP-provider path.
@@ -87,9 +87,78 @@ async def fetch_candles(
         return await _fetch_twelvedata(
             client, symbol, timeframe, end_date=end_date, output_size=output_size
         )
+    if provider == "kraken":
+        return await _fetch_kraken(
+            client, symbol, timeframe, end_date=end_date, output_size=output_size
+        )
     if provider == "alpha_vantage":
         return await _fetch_alpha_vantage(client, symbol, timeframe)
     raise ValueError(f"No provider configured for symbol {symbol}")
+
+
+# ---- Kraken Spot ----------------------------------------------------------
+
+KRAKEN_OHLC_URL = "https://api.kraken.com/0/public/OHLC"
+_KRAKEN_PAIR: dict[str, str] = {"BTCUSD": "BTC/USD"}
+_KRAKEN_INTERVAL: dict[str, int] = {
+    "1min": 1,
+    "5min": 5,
+    "15min": 15,
+    "60min": 60,
+    "daily": 1440,
+}
+
+
+async def _fetch_kraken(
+    client: httpx.AsyncClient,
+    symbol: str,
+    timeframe: str,
+    *,
+    end_date: datetime | None = None,
+    output_size: int = 100,
+) -> list[CandleRow]:
+    """Fetch recent keyless BTC/USD candles from Kraken Spot.
+
+    Kraken returns at most 720 recent bars and always includes the current,
+    not-yet-committed candle. ``since`` is incremental rather than a deep-history
+    cursor, so this provider does not pretend it can page beyond that window.
+    """
+    pair = _KRAKEN_PAIR[symbol]
+    interval = _KRAKEN_INTERVAL[timeframe]
+    size = max(1, min(int(output_size), 720))
+    params: dict[str, str] = {
+        "pair": pair,
+        "interval": str(interval),
+        "assetVersion": "1",
+    }
+    if end_date is not None:
+        params["since"] = str(max(0, int(end_date.timestamp()) - interval * 60 * size))
+
+    resp = await client.get(KRAKEN_OHLC_URL, params=params, timeout=30.0)
+    resp.raise_for_status()
+    payload: dict[str, Any] = resp.json()
+    errors = payload.get("error") or []
+    if errors:
+        raise RuntimeError(f"Kraken error: {', '.join(str(e) for e in errors)}")
+    result = payload.get("result") or {}
+    values = result.get(pair) or []
+    rows: list[CandleRow] = []
+    for entry in values[-size:]:
+        if not isinstance(entry, list) or len(entry) < 8:
+            continue
+        rows.append(
+            CandleRow(
+                symbol=symbol,
+                timeframe=timeframe,
+                timestamp=datetime.fromtimestamp(int(entry[0]), tz=timezone.utc).replace(tzinfo=None),
+                open=Decimal(str(entry[1])),
+                high=Decimal(str(entry[2])),
+                low=Decimal(str(entry[3])),
+                close=Decimal(str(entry[4])),
+                volume=Decimal(str(entry[6])),
+            )
+        )
+    return rows
 
 
 # ---- MT5 bridge (broker feed) ----------------------------------------------

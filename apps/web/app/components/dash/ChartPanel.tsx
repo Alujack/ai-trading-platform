@@ -8,11 +8,13 @@ import {
   type IChartApi,
   type IPriceLine,
   type ISeriesApi,
+  type LineData,
   type UTCTimestamp,
 } from "lightweight-charts";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
+import { findLargestCandleGap, formatDuration, marketStatus } from "@/lib/market";
 import { pickActiveSignal } from "@/lib/signals";
 import { C, mono } from "@/lib/theme";
 import {
@@ -39,6 +41,16 @@ function toCandleData(rows: Candle[]): CandlestickData[] {
       high: Number(c.high),
       low: Number(c.low),
       close: Number(c.close),
+    }))
+    .sort((a, b) => (a.time as number) - (b.time as number));
+}
+
+function toEmaData(rows: Candle[]): LineData[] {
+  return rows
+    .filter((c) => c.indicators?.ema20 != null)
+    .map((c) => ({
+      time: Math.floor(Date.parse(c.timestamp) / 1000) as UTCTimestamp,
+      value: Number(c.indicators?.ema20),
     }))
     .sort((a, b) => (a.time as number) - (b.time as number));
 }
@@ -81,7 +93,11 @@ export function ChartPanel({
   const wrapRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const emaSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const linesRef = useRef<IPriceLine[]>([]);
+  const fittedRef = useRef(false);
+  const lastCandleTimeRef = useRef(0);
+  const [followingLive, setFollowingLive] = useState(true);
 
   const { data: candles } = useSWR<Candle[]>(
     `/api/candles?symbol=${symbol}&timeframe=${timeframe}&limit=300`,
@@ -93,10 +109,13 @@ export function ChartPanel({
   });
   const signal = pickActiveSignal(signals?.data ?? []);
 
-  const latest = (candles ?? [])
+  const ordered = (candles ?? [])
     .slice()
-    .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))[0];
+    .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp));
+  const latest = ordered[0];
   const ind = latest?.indicators;
+  const status = marketStatus(symbol, timeframe, latest?.timestamp);
+  const gap = findLargestCandleGap(candles ?? [], timeframe, symbol);
 
   useEffect(() => {
     const el = wrapRef.current;
@@ -129,6 +148,10 @@ export function ChartPanel({
     window.addEventListener("keydown", onKey);
     window.addEventListener("keyup", onKey);
     window.addEventListener("blur", onBlur);
+    const onVisibleRangeChange = () => {
+      setFollowingLive(Math.abs(chart.timeScale().scrollPosition()) < 1);
+    };
+    chart.timeScale().subscribeVisibleLogicalRangeChange(onVisibleRangeChange);
     const series = chart.addCandlestickSeries({
       upColor: C.up,
       downColor: C.down,
@@ -136,24 +159,63 @@ export function ChartPanel({
       wickUpColor: C.up,
       wickDownColor: C.down,
     });
+    const emaSeries = chart.addLineSeries({
+      color: C.blue,
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: true,
+    });
     chartRef.current = chart;
     seriesRef.current = series;
+    emaSeriesRef.current = emaSeries;
     linesRef.current = [];
+    fittedRef.current = false;
+    lastCandleTimeRef.current = 0;
+    setFollowingLive(true);
     return () => {
       window.removeEventListener("keydown", onKey);
       window.removeEventListener("keyup", onKey);
       window.removeEventListener("blur", onBlur);
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(onVisibleRangeChange);
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
+      emaSeriesRef.current = null;
       linesRef.current = [];
+      fittedRef.current = false;
+      lastCandleTimeRef.current = 0;
     };
   }, [symbol, timeframe]);
 
   useEffect(() => {
     if (!seriesRef.current || !candles || candles.length === 0) return;
-    seriesRef.current.setData(toCandleData(candles));
-    chartRef.current?.timeScale().fitContent();
+    const candleData = toCandleData(candles);
+    const emaData = toEmaData(candles);
+
+    // TradingView-style lifecycle: load history once, then update/append only
+    // the newest bar. This preserves the viewport and avoids redrawing 300 bars
+    // every time a live OHLC payload arrives.
+    if (!fittedRef.current) {
+      seriesRef.current.setData(candleData);
+      emaSeriesRef.current?.setData(emaData);
+      const latestCandle = candleData.at(-1);
+      lastCandleTimeRef.current = latestCandle
+        ? Number(latestCandle.time)
+        : 0;
+      chartRef.current?.timeScale().fitContent();
+      fittedRef.current = true;
+      return;
+    }
+
+    const latestCandle = candleData.at(-1);
+    const latestTime = latestCandle ? Number(latestCandle.time) : 0;
+    if (latestCandle && latestTime >= lastCandleTimeRef.current) {
+      seriesRef.current.update(latestCandle);
+      lastCandleTimeRef.current = latestTime;
+    }
+    const latestEma = emaData.at(-1);
+    if (latestEma) emaSeriesRef.current?.update(latestEma);
   }, [candles]);
 
   useEffect(() => {
@@ -177,16 +239,46 @@ export function ChartPanel({
 
   const rsi = ind?.rsi != null ? Number(ind.rsi) : null;
   const rsiSub = rsi == null ? "" : rsi >= 70 ? "overbought" : rsi <= 30 ? "oversold" : "neutral";
+  const livePrice = latest ? Number(latest.close) : null;
+  const candleOpen = latest ? Number(latest.open) : null;
+  const priceDirection =
+    livePrice == null || candleOpen == null || livePrice === candleOpen
+      ? "flat"
+      : livePrice > candleOpen
+        ? "up"
+        : "down";
+  const pricePulseKey = latest
+    ? `${latest.timestamp}:${latest.close}:${latest.volume}`
+    : "empty";
 
   return (
     <div style={{ background: C.panel, border: `1px solid ${C.line2}`, borderRadius: 14, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px", borderBottom: `1px solid ${C.line}` }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <h2 style={{ margin: 0, fontSize: 13, fontWeight: 700 }}>{symbol}</h2>
+      <div className="chart-toolbar">
+        <div className="chart-identity">
+          <h2>{symbol}</h2>
+          <span className="chart-timeframe-label">{TF_LABEL[timeframe]}</span>
+          {livePrice != null && (
+            <span
+              key={pricePulseKey}
+              className="chart-stream-price"
+              data-direction={priceDirection}
+            >
+              {livePrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+            </span>
+          )}
           <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, color: C.text3 }}>
             <span style={{ width: 14, height: 2, borderRadius: 2, background: C.blue }} />
             EMA 20
           </span>
+          <span className="chart-market-state" data-state={status.state} title={status.detail}>
+            <span aria-hidden="true" />
+            {status.label}
+          </span>
+          {gap && (
+            <span className="chart-gap-warning" title={`Missing history between ${gap.start.toISOString()} and ${gap.end.toISOString()}`}>
+              Data gap {formatDuration(gap.durationMs)}
+            </span>
+          )}
         </div>
         <div style={{ display: "flex", gap: 4, padding: 3, background: "rgba(255,255,255,0.03)", borderRadius: 9 }}>
           {TIMEFRAMES.map((tf) => {
@@ -214,8 +306,21 @@ export function ChartPanel({
         </div>
       </div>
 
-      <div style={{ position: "relative", height: 392, background: C.panelDeep }}>
+      <div className="chart-stage">
         <div ref={wrapRef} style={{ height: "100%", width: "100%" }} />
+        {!followingLive && (
+          <button
+            type="button"
+            className="chart-go-live"
+            onClick={() => {
+              chartRef.current?.timeScale().scrollToRealTime();
+              setFollowingLive(true);
+            }}
+          >
+            <span aria-hidden="true" />
+            Go to live
+          </button>
+        )}
         {!signal && candles && (
           <div
             style={{
@@ -248,7 +353,7 @@ export function ChartPanel({
             padding: "2px 8px",
           }}
         >
-          drag to pan · ctrl+scroll to zoom
+          drag to pan · ctrl+scroll to zoom · double-click price axis to reset
         </div>
       </div>
 

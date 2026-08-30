@@ -20,20 +20,20 @@ const jetbrains = JetBrains_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
   title: {
-    default: "Cambotix Trade Intelligence",
-    template: "%s · Cambotix Trade Intelligence",
+    default: "Cambotix Vigil",
+    template: "%s · Cambotix Vigil",
   },
-  description: "AI-assisted market context, disciplined risk controls, and execution clarity in one focused trading workspace.",
+  description: "Read the market. Respect the risk. AI-assisted market context, disciplined risk controls, and execution clarity.",
   openGraph: {
     type: "website",
-    title: "Cambotix Trade Intelligence",
-    description: "AI-assisted market context, risk controls, and execution clarity.",
-    images: [{ url: "/og.png", width: 1731, height: 909, alt: "Cambotix Trade Intelligence" }],
+    title: "Cambotix Vigil",
+    description: "Read the market. Respect the risk.",
+    images: [{ url: "/og.png", width: 1569, height: 1003, alt: "Cambotix Vigil" }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Cambotix Trade Intelligence",
-    description: "AI-assisted market context, risk controls, and execution clarity.",
+    title: "Cambotix Vigil",
+    description: "Read the market. Respect the risk.",
     images: ["/og.png"],
   },
 };

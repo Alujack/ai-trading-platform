@@ -4,6 +4,7 @@ import { ChevronDown, TrendingDown, TrendingUp } from "lucide-react";
 import { usePathname } from "next/navigation";
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
+import { marketStatus } from "@/lib/market";
 import { C, mono, tint } from "@/lib/theme";
 import {
   SYMBOLS,
@@ -11,6 +12,7 @@ import {
   type Candle,
   type PositionsResponse,
   type Symbol,
+  type Timeframe,
 } from "@/lib/types";
 
 const META: Record<Symbol, { badge: string; name: string; grad: string; fg: string }> = {
@@ -36,15 +38,6 @@ function fmtPrice(n: number, symbol: Symbol): string {
   return n.toLocaleString(undefined, { minimumFractionDigits: dp, maximumFractionDigits: dp });
 }
 
-function session(): string {
-  const h = new Date().getUTCHours();
-  if (h >= 7 && h < 12) return "London · open";
-  if (h >= 12 && h < 16) return "London–NY · overlap";
-  if (h >= 16 && h < 21) return "New York · open";
-  if (h >= 21 || h < 0) return "Sydney · open";
-  return "Tokyo · open";
-}
-
 export function TopBar({
   symbol,
   timeframe,
@@ -53,7 +46,7 @@ export function TopBar({
   rtStatus = "connecting",
 }: {
   symbol: Symbol;
-  timeframe: string;
+  timeframe: Timeframe;
   onSymbolChange: (s: Symbol) => void;
   onAiClick: () => void;
   rtStatus?: "connecting" | "live" | "offline";
@@ -80,6 +73,8 @@ export function TopBar({
   const aiActive = ai?.active ?? "mock";
   const aiLive = aiActive !== "mock";
   const equity = pos?.account.equity;
+  const market = marketStatus(symbol, timeframe, last?.timestamp);
+  const marketTone = market.state === "live" ? C.up : market.state === "delayed" || market.state === "missing" ? C.down : C.warn;
 
   return (
     <header className="topbar">
@@ -169,19 +164,23 @@ export function TopBar({
       <div className="topbar-spacer" />
 
       {/* realtime status + market session */}
-      <div className="topbar-status" style={{ alignItems: "center", gap: 7, fontSize: 11, color: C.text3 }} title={`Realtime stream: ${rtStatus}`}>
+      <div
+        className="topbar-status"
+        style={{ alignItems: "center", gap: 7, fontSize: 11, color: C.text3 }}
+        title={`${market.detail}. Event channel: ${rtStatus}.`}
+      >
         <span
           style={{
             width: 7,
             height: 7,
             borderRadius: "50%",
-            background: rtStatus === "live" ? C.up : rtStatus === "connecting" ? C.warn : C.down,
-            animation: rtStatus === "live" ? "livedot 2s ease-in-out infinite" : undefined,
+            background: marketTone,
+            animation: market.state === "live" ? "livedot 2s ease-in-out infinite" : undefined,
           }}
         />
-        {rtStatus === "live" ? "Live" : rtStatus === "connecting" ? "Connecting" : "Offline"}
+        {market.label}
         <span style={{ color: C.muted2 }}>·</span>
-        {session()}
+        {market.session}
       </div>
       <span style={{ width: 1, height: 22, background: tint("#ffffff", 0.08) }} />
 

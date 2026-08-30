@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Radar, ShieldCheck } from "lucide-react";
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
 import { pickActiveSignal, pipsBetween, riskReward, usdAt001Lot } from "@/lib/signals";
@@ -27,8 +28,16 @@ export function ActiveSetupPanel({ symbol }: { symbol: Symbol }) {
       </div>
 
       {!signal ? (
-        <div style={{ padding: 16, fontSize: 12.5, color: C.muted, lineHeight: 1.6 }}>
-          No active setup for {symbol}. The engine posts one here as soon as a strategy fires and clears the AI + risk gate.
+        <div className="setup-empty">
+          <span className="setup-empty-icon"><Radar size={22} /></span>
+          <div>
+            <strong>No executable setup</strong>
+            <p>Vigil is scanning {symbol}. A setup appears only after the strategy, AI, freshness, and risk gates pass.</p>
+          </div>
+          <div className="setup-empty-checks">
+            <span><ShieldCheck size={13} /> Cancelled ideas hidden</span>
+            <span><ShieldCheck size={13} /> Stale prices blocked</span>
+          </div>
         </div>
       ) : (
         <Setup signal={signal} symbol={symbol} />

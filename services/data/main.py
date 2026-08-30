@@ -16,8 +16,9 @@ import httpx
 from dotenv import load_dotenv
 
 from db import close_pool, init_pool, upsert_candles
-from fetcher import SYMBOL_MAP, fetch_candles
+from fetcher import PROVIDER_BY_SYMBOL, SYMBOL_MAP, fetch_candles
 from indicator_calculator import calculate_indicators
+from kraken_stream import run_kraken_stream
 from strategy_runner import run_once as run_strategy_scan
 
 # News ingestion moved to the n8n automation layer (see docs/plans/06-…). The
@@ -56,18 +57,32 @@ _API_BASE = os.environ.get("API_PUBLIC_URL", "http://localhost:8000").rstrip("/"
 RT_NOTIFY_URL = f"{_API_BASE}/api/internal/rt-notify"
 
 
-async def _notify_rt(client: httpx.AsyncClient, type_: str, symbol: str, timeframe: str) -> None:
+async def _notify_rt(
+    client: httpx.AsyncClient,
+    type_: str,
+    symbol: str,
+    timeframe: str | None,
+    candle: dict[str, str] | None = None,
+) -> None:
     """Best-effort realtime ping; never let it disturb the ingest loop."""
+    body: dict[str, object] = {
+        "type": type_,
+        "symbol": symbol,
+        "timeframe": timeframe,
+    }
+    if candle is not None:
+        body["candle"] = candle
     try:
         await client.post(
             RT_NOTIFY_URL,
-            json={"type": type_, "symbol": symbol, "timeframe": timeframe},
+            json=body,
             timeout=5.0,
         )
     except Exception:  # noqa: BLE001 — realtime is a nicety, not load-bearing
         pass
 
 log = logging.getLogger("data.worker")
+_warmed_series: set[tuple[str, str]] = set()
 
 
 def _ingest_symbols() -> list[str]:
@@ -110,8 +125,17 @@ async def _fetch_and_store(
     client: httpx.AsyncClient, symbol: str, timeframe: str
 ) -> None:
     fetched_at = datetime.now(timezone.utc).isoformat()
+    key = (symbol, timeframe)
+    # Kraken retains up to 720 recent bars. Pull the full window once at worker
+    # startup to heal the old BTC history hole, then use small refreshes while
+    # the WebSocket owns the in-progress candles.
+    output_size = (
+        720
+        if PROVIDER_BY_SYMBOL.get(symbol) == "kraken" and key not in _warmed_series
+        else 100
+    )
     try:
-        rows = await fetch_candles(client, symbol, timeframe)
+        rows = await fetch_candles(client, symbol, timeframe, output_size=output_size)
     except Exception as exc:  # noqa: BLE001 — log and continue, do not kill the loop
         log.error("fetch_failed at=%s symbol=%s tf=%s err=%s", fetched_at, symbol, timeframe, exc)
         return
@@ -125,13 +149,14 @@ async def _fetch_and_store(
         written,
     )
     if written > 0:
+        _warmed_series.add(key)
         try:
             await calculate_indicators(symbol, timeframe)
         except Exception as exc:  # noqa: BLE001 — indicators are derived, don't kill the loop
             log.error(
                 "indicators_failed symbol=%s tf=%s err=%s", symbol, timeframe, exc
             )
-        await _notify_rt(client, "candle", symbol, timeframe)
+        await _notify_rt(client, "candle", symbol, timeframe, None)
 
 
 async def _scheduled_loop(
@@ -181,12 +206,27 @@ async def main() -> None:
 
     async with httpx.AsyncClient() as client:
         try:
+            live_streams = []
+            if "BTCUSD" in symbols:
+                live_streams.append(
+                    run_kraken_stream(
+                        client,
+                        list(TIMEFRAME_PERIOD_SECONDS),
+                        _notify_rt,
+                    )
+                )
             await asyncio.gather(
                 *(
                     _scheduled_loop(tf, client, period, symbols)
                     for tf, period in TIMEFRAME_PERIOD_SECONDS.items()
                 ),
-                _periodic_loop("strategy_runner", run_strategy_scan, client, STRATEGY_PERIOD_SECONDS),
+                _periodic_loop(
+                    "strategy_runner",
+                    run_strategy_scan,
+                    client,
+                    STRATEGY_PERIOD_SECONDS,
+                ),
+                *live_streams,
             )
         finally:
             await close_pool()

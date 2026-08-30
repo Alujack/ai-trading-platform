@@ -10,6 +10,7 @@ import {
   Settings,
   type LucideIcon,
 } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ACCENTS, ACCENT_LABELS, C, type Accent } from "@/lib/theme";
@@ -44,11 +45,20 @@ export function LeftNavRail({
   return (
     <>
       <nav className="nav-rail" aria-label="Primary navigation">
-        <Link className="nav-brand" href="/" aria-label="Cambotix Trade Intelligence home">
-          <span className="brand-mark" aria-hidden="true">CX</span>
+        <Link className="nav-brand" href="/" aria-label="Cambotix Vigil home">
+          <Image
+            className="brand-mark"
+            src="/brand/vigil-mark.svg"
+            alt=""
+            width={34}
+            height={34}
+            priority
+            unoptimized
+            aria-hidden="true"
+          />
           <span className="nav-brand-copy" style={{ lineHeight: 1.05 }}>
             <span style={{ display: "block", fontSize: 12, fontWeight: 800, letterSpacing: ".12em" }}>CAMBOTIX</span>
-            <span style={{ display: "block", marginTop: 4, color: C.muted2, fontSize: 8.5, fontWeight: 700, letterSpacing: ".13em" }}>TRADE INTELLIGENCE</span>
+            <span style={{ display: "block", marginTop: 4, color: C.gold, fontSize: 8.5, fontWeight: 750, letterSpacing: ".17em" }}>VIGIL · AI TRADING</span>
           </span>
         </Link>
 

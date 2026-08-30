@@ -26,6 +26,18 @@ export interface Candle {
   indicators: Indicators | null;
 }
 
+/** Full in-progress OHLCV bar pushed by the Python market-data worker. */
+export interface RealtimeCandle {
+  symbol: string;
+  timeframe: string;
+  open: string;
+  high: string;
+  low: string;
+  close: string;
+  volume: string;
+  timestamp: string;
+}
+
 export type SignalDirection = "LONG" | "SHORT";
 export type SignalStatus = "PENDING" | "ACTIVE" | "CLOSED" | "CANCELLED";
 

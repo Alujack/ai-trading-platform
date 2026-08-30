@@ -105,6 +105,12 @@ async def rt_notify(request: Request, response: Response) -> dict[str, Any]:
         body = {}
     type_ = body.get("type")
     if type_:
-        await publish_event(type_, symbol=body.get("symbol"), timeframe=body.get("timeframe"))
+        candle = body.get("candle")
+        await publish_event(
+            type_,
+            symbol=body.get("symbol"),
+            timeframe=body.get("timeframe"),
+            candle=candle if isinstance(candle, dict) else None,
+        )
     response.status_code = 202
     return {"ok": True}

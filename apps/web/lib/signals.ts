@@ -26,11 +26,9 @@ export function usdAt001Lot(symbol: string, pips: number): number {
   return pips * (PIP_VALUE_001_LOT[symbol] ?? 0.1);
 }
 
-/** Prefer an open idea (PENDING/ACTIVE); otherwise the most recent signal. */
+/** Return an executable/open idea only. Closed and cancelled rows are history. */
 export function pickActiveSignal(signals: Signal[]): Signal | null {
-  if (signals.length === 0) return null;
-  const open = signals.find((s) => s.status === "PENDING" || s.status === "ACTIVE");
-  return open ?? signals[0] ?? null;
+  return signals.find((s) => s.status === "PENDING" || s.status === "ACTIVE") ?? null;
 }
 
 export function riskReward(entry: number, stop: number, target: number): number {
