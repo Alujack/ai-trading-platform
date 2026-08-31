@@ -87,7 +87,7 @@ services:
       # run the bridge natively on the host instead of the `live` profile.
       - MT5_BRIDGE_URL=${MT5_BRIDGE_URL:-http://mt5bridge:8800}
       - MT5_BRIDGE_TOKEN=${MT5_BRIDGE_TOKEN:-}
-      - 'BROKER_SYMBOL_MAP={"EURUSD":"EURUSDc","XAUUSD":"XAUUSDc","BTCUSD":"BTCUSDc"}'
+      - 'BROKER_SYMBOL_MAP={"EURUSD":"EURUSDm","XAUUSD":"XAUUSDm","BTCUSD":"BTCUSDm"}'
       # Where the UI-triggered backtester lives (mounted below).
       - BACKTEST_DATA_DIR=/data
       # Secret overrides pasted from the dashboard persist on a named volume so

@@ -3,7 +3,7 @@
 #
 #   .\start-trading.ps1              start everything (paper or live per .env)
 #   .\start-trading.ps1 -SetupLive   write the live-broker keys into .env
-#                                    (BROKER=exness, EXNESS_ENV=demo, bridge URL
+#                                    (BROKER=exness, EXNESS_ENV=real, bridge URL
 #                                    + token copied from services\mt5bridge\.env)
 #   .\start-trading.ps1 -AllowReal   required when EXNESS_ENV=real - the script
 #                                    refuses to start a real-money session
@@ -111,10 +111,10 @@ if ($Stop) {
 }
 
 # ---------------------------------------------------------------------------
-# -SetupLive: write the live keys into root .env (demo account)
+# -SetupLive: write the live keys into root .env (real account)
 # ---------------------------------------------------------------------------
 if ($SetupLive) {
-    Write-Step "Writing live-broker keys into .env (EXNESS_ENV=demo)"
+    Write-Step "Writing live-broker keys into .env (EXNESS_ENV=real)"
     $bridgeCfg = Read-DotEnv $BridgeEnv
     $token = $bridgeCfg["MT5_BRIDGE_TOKEN"]
     if (-not $token) {
@@ -122,12 +122,12 @@ if ($SetupLive) {
         exit 1
     }
     Set-DotEnvKey $EnvFile "BROKER" "exness"
-    Set-DotEnvKey $EnvFile "EXNESS_ENV" "demo"
+    Set-DotEnvKey $EnvFile "EXNESS_ENV" "real"
     # the backend runs in docker; the native bridge is on the host.
     Set-DotEnvKey $EnvFile "MT5_BRIDGE_URL" "http://host.docker.internal:8800"
     Set-DotEnvKey $EnvFile "MT5_BRIDGE_TOKEN" $token
-    Write-Ok "BROKER=exness, EXNESS_ENV=demo, MT5_BRIDGE_URL, MT5_BRIDGE_TOKEN written"
-    Write-Host "  Re-run .\start-trading.ps1 to start the live (demo) stack." -ForegroundColor Cyan
+    Write-Ok "BROKER=exness, EXNESS_ENV=real, MT5_BRIDGE_URL, MT5_BRIDGE_TOKEN written"
+    Write-Host "  Re-run .\start-trading.ps1 -AllowReal to start the live (REAL money) stack." -ForegroundColor Cyan
     exit 0
 }
 
